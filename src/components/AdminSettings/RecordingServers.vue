@@ -98,13 +98,64 @@
 					@update:modelValue="setRecordingSummary">
 					{{ t('spreed', 'Automatically summarize call recordings with transcription and summary providers') }}
 				</NcCheckboxRadioSwitch>
+
+				<h3>{{ t('spreed', 'Google Cloud transcription and summaries') }}</h3>
+				<NcCheckboxRadioSwitch v-model="google.enabled" type="switch" :disabled="loading">
+					{{ t('spreed', 'Use Google Cloud for recording transcription and summaries') }}
+				</NcCheckboxRadioSwitch>
+				<NcTextField
+					v-model="google.project"
+					class="form__textfield"
+					:label="t('spreed', 'Google Cloud project ID')"
+					labelVisible />
+				<NcTextField
+					v-model="google.location"
+					class="form__textfield"
+					:label="t('spreed', 'Google Cloud location')"
+					labelVisible />
+				<NcTextField
+					v-model="google.bucket"
+					class="form__textfield"
+					:label="t('spreed', 'Cloud Storage bucket')"
+					labelVisible />
+				<NcTextField
+					v-model="google.language"
+					class="form__textfield"
+					:label="t('spreed', 'Transcription language')"
+					labelVisible />
+				<NcTextField
+					v-model="google.speechModel"
+					class="form__textfield"
+					:label="t('spreed', 'Speech model')"
+					labelVisible />
+				<NcTextField
+					v-model="google.geminiLocation"
+					class="form__textfield"
+					:label="t('spreed', 'Gemini location')"
+					labelVisible />
+				<NcTextField
+					v-model="google.geminiModel"
+					class="form__textfield"
+					:label="t('spreed', 'Gemini model')"
+					labelVisible />
+				<NcTextArea
+					v-model="serviceAccountJson"
+					class="form__textfield"
+					:label="t('spreed', 'Service account JSON')"
+					:placeholder="google.serviceAccountConfigured ? t('spreed', 'A service account is configured. Leave empty to keep it.') : t('spreed', 'Paste service account JSON')" />
+				<NcCheckboxRadioSwitch v-if="google.serviceAccountConfigured" v-model="removeServiceAccount" type="checkbox">
+					{{ t('spreed', 'Remove configured service account') }}
+				</NcCheckboxRadioSwitch>
+				<NcButton variant="primary" :disabled="loading" @click="saveGoogleSettings">
+					{{ t('spreed', 'Save Google Cloud settings') }}
+				</NcButton>
 			</template>
 		</template>
 	</section>
 </template>
 
 <script>
-import { showSuccess } from '@nextcloud/dialogs'
+import { showError, showSuccess } from '@nextcloud/dialogs'
 import { formatFileSize } from '@nextcloud/files'
 import { loadState } from '@nextcloud/initial-state'
 import { t } from '@nextcloud/l10n'
@@ -114,10 +165,13 @@ import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwit
 import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon'
 import NcNoteCard from '@nextcloud/vue/components/NcNoteCard'
 import NcPasswordField from '@nextcloud/vue/components/NcPasswordField'
+import NcTextArea from '@nextcloud/vue/components/NcTextArea'
+import NcTextField from '@nextcloud/vue/components/NcTextField'
 import IconPlus from 'vue-material-design-icons/Plus.vue'
 import RecordingServer from '../../components/AdminSettings/RecordingServer.vue'
 import TransitionWrapper from '../UIShared/TransitionWrapper.vue'
 import { CONFIG } from '../../constants.ts'
+import { saveRecordingGoogleSettings } from '../../services/adminSettingsService.js'
 import { hasTalkFeature } from '../../services/CapabilitiesManager.ts'
 
 const recordingConsentCapability = hasTalkFeature('local', 'recording-consent')
@@ -136,6 +190,8 @@ export default {
 		NcLoadingIcon,
 		NcNoteCard,
 		NcPasswordField,
+		NcTextArea,
+		NcTextField,
 		IconPlus,
 		RecordingServer,
 		TransitionWrapper,
@@ -166,6 +222,9 @@ export default {
 			recordingTranscriptionEnabled: loadState('spreed', 'call_recording_transcription'),
 			recordingSummaryEnabled: loadState('spreed', 'call_recording_summary'),
 			debounceUpdateServers: () => {},
+			google: loadState('spreed', 'recording_google_settings'),
+			serviceAccountJson: '',
+			removeServiceAccount: false,
 		}
 	},
 
@@ -223,6 +282,24 @@ export default {
 					this.toggleSave()
 				},
 			})
+		},
+
+		async saveGoogleSettings() {
+			this.loading = true
+			try {
+				await saveRecordingGoogleSettings({
+					...this.google,
+					serviceAccountJson: this.serviceAccountJson,
+					removeServiceAccount: this.removeServiceAccount,
+				})
+				this.google.serviceAccountConfigured = this.removeServiceAccount ? false : (this.google.serviceAccountConfigured || this.serviceAccountJson !== '')
+				this.serviceAccountJson = ''
+				this.removeServiceAccount = false
+				showSuccess(t('spreed', 'Google Cloud settings saved'))
+			} catch (error) {
+				showError(t('spreed', 'Failed to save Google Cloud settings'))
+			}
+			this.loading = false
 		},
 
 		setRecordingConsent(value) {

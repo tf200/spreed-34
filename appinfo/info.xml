@@ -66,6 +66,7 @@
 	</dependencies>
 
 	<background-jobs>
+		<job>OCA\Talk\BackgroundJob\ProcessRecordingAi</job>
 		<job>OCA\Talk\BackgroundJob\CheckCertificates</job>
 		<job>OCA\Talk\BackgroundJob\CheckHostedSignalingServer</job>
 		<job>OCA\Talk\BackgroundJob\CheckMatterbridges</job>

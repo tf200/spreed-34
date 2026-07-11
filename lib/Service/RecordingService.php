@@ -18,6 +18,7 @@ use OCA\Talk\Exceptions\RecordingNotFoundException;
 use OCA\Talk\Manager;
 use OCA\Talk\Participant;
 use OCA\Talk\Recording\BackendNotifier;
+use OCA\Talk\Recording\RecordingAiService;
 use OCA\Talk\Room;
 use OCA\Talk\Settings\UserPreference;
 use OCP\AppFramework\Services\IAppConfig;
@@ -94,6 +95,7 @@ class RecordingService {
 		private readonly IUserManager $userManager,
 		private readonly IEventDispatcher $eventDispatcher,
 		private readonly ISecureRandom $secureRandom,
+		private readonly RecordingAiService $recordingAiService,
 	) {
 	}
 
@@ -137,7 +139,7 @@ class RecordingService {
 		}
 	}
 
-	public function store(Room $room, string $owner, array $file): void {
+	public function store(Room $room, string $owner, array $file, ?array $speakerTimeline = null): void {
 		$this->appConfig->deleteAppValue(self::APPCONFIG_PREFIX . $room->getToken());
 		try {
 			$participant = $this->participantService->getParticipant($room, $owner);
@@ -151,10 +153,16 @@ class RecordingService {
 		$fileRealPath = realpath($file['tmp_name']);
 
 		$this->validateFileFormat($fileName, $fileRealPath);
+		$speakerTimelineContent = $speakerTimeline !== null
+			? $this->validateSpeakerTimeline($speakerTimeline)
+			: null;
 
 		try {
 			$recordingFolder = $this->getRecordingFolder($owner, $room->getToken());
 			$fileNode = $recordingFolder->newFile($fileName, $resource);
+			if ($speakerTimelineContent !== null) {
+				$recordingFolder->newFile($fileName . '.speakers.json', $speakerTimelineContent);
+			}
 		} catch (NoUserException $e) {
 			throw new InvalidArgumentException('owner_invalid');
 		} catch (NotPermittedException $e) {
@@ -162,6 +170,76 @@ class RecordingService {
 		}
 
 		$this->finalizeRecording($room, $participant, $fileNode, $owner);
+	}
+
+	/**
+	 * Validate the timeline uploaded by the recording backend before persisting it.
+	 */
+	public function validateSpeakerTimeline(array $file): string {
+		if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK
+			|| !isset($file['tmp_name'])
+			|| !is_uploaded_file($file['tmp_name'])
+			|| ($file['size'] ?? filesize($file['tmp_name'])) > 1024 * 1024) {
+			throw new InvalidArgumentException('speaker_timeline_invalid_file');
+		}
+
+		$content = file_get_contents($file['tmp_name']);
+		if ($content === false || $content === '') {
+			throw new InvalidArgumentException('speaker_timeline_invalid_file');
+		}
+
+		$this->validateSpeakerTimelineContent($content);
+		return $content;
+	}
+
+	public function validateSpeakerTimelineContent(string $content): void {
+		try {
+			$timeline = json_decode($content, true, 32, JSON_THROW_ON_ERROR);
+		} catch (\JsonException) {
+			throw new InvalidArgumentException('speaker_timeline_invalid_json');
+		}
+
+		if (!is_array($timeline)) {
+			throw new InvalidArgumentException('speaker_timeline_invalid_schema');
+		}
+
+		$duration = $timeline['duration'] ?? null;
+		if (
+			($timeline['version'] ?? null) !== 1
+			|| (!is_int($duration) && !is_float($duration))
+			|| !is_finite((float)$duration)
+			|| (float)$duration < 0
+			|| !is_array($timeline['events'] ?? null)
+			|| count($timeline['events']) > 20000) {
+			throw new InvalidArgumentException('speaker_timeline_invalid_schema');
+		}
+
+		$previousTime = 0.0;
+		foreach ($timeline['events'] as $event) {
+			if (!is_array($event)) {
+				throw new InvalidArgumentException('speaker_timeline_invalid_schema');
+			}
+			$time = $event['time'] ?? null;
+			if ((!is_int($time) && !is_float($time))
+				|| !is_finite((float)$time)
+				|| (float)$time < $previousTime
+				|| (float)$time > (float)$duration
+				|| !is_bool($event['speaking'] ?? null)
+				|| !$this->isValidTimelineString($event['peerId'] ?? null, false)) {
+				throw new InvalidArgumentException('speaker_timeline_invalid_schema');
+			}
+			foreach (['sessionId', 'actorType', 'actorId', 'userId', 'displayName'] as $field) {
+				if (array_key_exists($field, $event) && !$this->isValidTimelineString($event[$field], true)) {
+					throw new InvalidArgumentException('speaker_timeline_invalid_schema');
+				}
+			}
+			$previousTime = (float)$time;
+		}
+	}
+
+	private function isValidTimelineString(mixed $value, bool $nullable): bool {
+		return ($nullable && $value === null)
+			|| (is_string($value) && $value !== '' && strlen($value) <= 255);
 	}
 
 	/**
@@ -247,7 +325,7 @@ class RecordingService {
 	 *
 	 * @throws InvalidArgumentException
 	 */
-	public function finishUpload(Room $room, string $owner, string $fileName): void {
+	public function finishUpload(Room $room, string $owner, string $fileName, ?array $speakerTimeline = null): void {
 		try {
 			$participant = $this->participantService->getParticipant($room, $owner);
 		} catch (ParticipantNotFoundException) {
@@ -290,6 +368,15 @@ class RecordingService {
 			$fileNode->delete();
 			$this->cleanupUploadShare($room, $fileName);
 			throw $e;
+		}
+
+		if ($speakerTimeline !== null) {
+			$speakerTimelineContent = $this->validateSpeakerTimeline($speakerTimeline);
+			try {
+				$recordingFolder->newFile($fileName . '.speakers.json', $speakerTimelineContent);
+			} catch (NotPermittedException) {
+				throw new InvalidArgumentException('owner_permission');
+			}
 		}
 
 		$this->finalizeRecording($room, $participant, $fileNode, $owner);
@@ -354,6 +441,16 @@ class RecordingService {
 			return;
 		}
 
+		try {
+			if ($this->recordingAiService->enqueue((int)$fileNode->getId(), $owner, $room->getToken()) !== null) {
+				$this->logger->debug('Scheduled Google AI processing for call recording');
+				return;
+			}
+		} catch (\InvalidArgumentException $e) {
+			$this->logger->error('Google AI recording configuration is invalid', ['exception' => $e]);
+			return;
+		}
+
 		$supportedTaskTypeIds = $this->taskProcessingManager->getAvailableTaskTypeIds();
 		if (!in_array(AudioToText::ID, $supportedTaskTypeIds, true)) {
 			$this->logger->error('Can not transcribe call recording as no Audio2Text task provider is available');
@@ -379,7 +476,7 @@ class RecordingService {
 	/**
 	 * @param 'transcript'|'summary' $aiTask
 	 */
-	public function storeTranscript(string $owner, string $roomToken, int $recordingFileId, string $output, string $aiTask): void {
+	public function storeTranscript(string $owner, string $roomToken, int $recordingFileId, string $output, string $aiTask, bool $scheduleSummary = true): void {
 		$userFolder = $this->rootFolder->getUserFolder($owner);
 		$recordingNodes = $userFolder->getById($recordingFileId);
 
@@ -445,7 +542,7 @@ class RecordingService {
 			}
 		}
 
-		if (!$shouldSummarize) {
+		if (!$shouldSummarize || !$scheduleSummary) {
 			// If summary is off skip scheduling it
 			$this->logger->debug('Skipping scheduling summary of call recording as it is disabled');
 			return;

@@ -19,6 +19,7 @@ use OCP\IConfig;
 use OCP\IGroup;
 use OCP\IGroupManager;
 use OCP\IRequest;
+use SensitiveParameter;
 
 class SettingsController extends OCSController {
 
@@ -87,6 +88,58 @@ class SettingsController extends OCSController {
 		$this->config->setAppValue('spreed', 'sip_bridge_dialin_info', $dialInInfo);
 		$this->config->setAppValue('spreed', 'sip_bridge_shared_secret', $sharedSecret);
 
+		return new DataResponse(null);
+	}
+
+	#[OpenAPI(scope: OpenAPI::SCOPE_ADMINISTRATION, tags: ['settings'])]
+	#[ApiRoute(verb: 'POST', url: '/api/{apiVersion}/settings/recording/google', requirements: ['apiVersion' => '(v1)'])]
+	public function setRecordingGoogleSettings(
+		bool $enabled,
+		string $project,
+		string $location,
+		string $bucket,
+		string $language,
+		string $speechModel,
+		string $geminiLocation,
+		string $geminiModel,
+		#[SensitiveParameter] string $serviceAccountJson = '',
+		bool $removeServiceAccount = false,
+	): DataResponse {
+		if (!preg_match('/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/', $project)
+			|| !preg_match('/^[a-z][a-z0-9-]{1,31}$/', $location)
+			|| !preg_match('/^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/', $bucket)
+			|| !preg_match('/^[a-z]{2,3}(?:-[A-Z]{2})?$/', $language)
+			|| !preg_match('/^[a-zA-Z0-9._-]{1,64}$/', $speechModel)
+			|| !preg_match('/^(?:global|[a-z]+-[a-z]+[0-9])$/', $geminiLocation)
+			|| !preg_match('/^[a-zA-Z0-9._-]{1,64}$/', $geminiModel)) {
+			return new DataResponse(null, Http::STATUS_BAD_REQUEST);
+		}
+
+		if ($serviceAccountJson !== '') {
+			try {
+				$credential = json_decode($serviceAccountJson, true, 16, JSON_THROW_ON_ERROR);
+			} catch (\JsonException) {
+				return new DataResponse(null, Http::STATUS_BAD_REQUEST);
+			}
+			if (!is_array($credential)
+				|| ($credential['type'] ?? null) !== 'service_account'
+				|| !filter_var($credential['client_email'] ?? null, FILTER_VALIDATE_EMAIL)
+				|| !is_string($credential['private_key'] ?? null)
+				|| !str_contains($credential['private_key'], 'BEGIN PRIVATE KEY')) {
+				return new DataResponse(null, Http::STATUS_BAD_REQUEST);
+			}
+		}
+
+		$values = compact('project', 'location', 'bucket', 'language', 'speechModel', 'geminiLocation', 'geminiModel');
+		foreach ($values as $key => $value) {
+			$this->config->setAppValue('spreed', 'recording_google_' . strtolower((string)preg_replace('/(?<!^)[A-Z]/', '_$0', $key)), $value);
+		}
+		$this->config->setAppValue('spreed', 'recording_google_ai_enabled', $enabled ? 'yes' : 'no');
+		if ($removeServiceAccount) {
+			$this->config->deleteAppValue('spreed', 'recording_google_service_account');
+		} elseif ($serviceAccountJson !== '') {
+			$this->config->setAppValue('spreed', 'recording_google_service_account', $serviceAccountJson);
+		}
 		return new DataResponse(null);
 	}
 }

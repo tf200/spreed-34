@@ -451,6 +451,17 @@ class AdminSettings implements ISettings {
 		$this->initialState->provideInitialState('recording_consent', $this->talkConfig->getRecordingConsentConfig());
 		$this->initialState->provideInitialState('call_recording_transcription', $this->serverConfig->getAppValue('spreed', 'call_recording_transcription', 'no') === 'yes');
 		$this->initialState->provideInitialState('call_recording_summary', $this->serverConfig->getAppValue('spreed', 'call_recording_summary', 'yes') === 'yes');
+		$this->initialState->provideInitialState('recording_google_settings', [
+			'enabled' => $this->appConfig->getAppValueBool('recording_google_ai_enabled'),
+			'project' => $this->appConfig->getAppValueString('recording_google_project'),
+			'location' => $this->appConfig->getAppValueString('recording_google_location', 'eu'),
+			'bucket' => $this->appConfig->getAppValueString('recording_google_bucket'),
+			'language' => $this->appConfig->getAppValueString('recording_google_language', 'en-US'),
+			'speechModel' => $this->appConfig->getAppValueString('recording_google_speech_model', 'chirp_3'),
+			'geminiLocation' => $this->appConfig->getAppValueString('recording_google_gemini_location', 'global'),
+			'geminiModel' => $this->appConfig->getAppValueString('recording_google_gemini_model', 'gemini-2.5-flash-lite'),
+			'serviceAccountConfigured' => $this->appConfig->getAppValueString('recording_google_service_account', lazy: true) !== '',
+		]);
 	}
 
 	protected function initSIPBridge(): void {

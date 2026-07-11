@@ -24,6 +24,7 @@ use OCA\Talk\Manager;
 use OCA\Talk\Model\Attendee;
 use OCA\Talk\Participant;
 use OCA\Talk\Recording\BackendNotifier;
+use OCA\Talk\Recording\RecordingAiService;
 use OCA\Talk\Room;
 use OCA\Talk\Service\ParticipantService;
 use OCA\Talk\Service\RecordingService;
@@ -74,6 +75,7 @@ class RecordingServiceTest extends TestCase {
 	protected IEventDispatcher&MockObject $eventDispatcher;
 	protected ISecureRandom&MockObject $secureRandom;
 	protected RecordingService $recordingService;
+	protected RecordingAiService&MockObject $recordingAiService;
 
 	public function setUp(): void {
 		parent::setUp();
@@ -98,6 +100,7 @@ class RecordingServiceTest extends TestCase {
 		$this->userManager = $this->createMock(IUserManager::class);
 		$this->eventDispatcher = $this->createMock(IEventDispatcher::class);
 		$this->secureRandom = $this->createMock(ISecureRandom::class);
+		$this->recordingAiService = $this->createMock(RecordingAiService::class);
 
 		$this->recordingService = new RecordingService(
 			$this->mimeTypeDetector,
@@ -120,6 +123,7 @@ class RecordingServiceTest extends TestCase {
 			$this->userManager,
 			$this->eventDispatcher,
 			$this->secureRandom,
+			$this->recordingAiService,
 		);
 	}
 
@@ -177,6 +181,33 @@ class RecordingServiceTest extends TestCase {
 
 		$actual = stream_get_contents($this->recordingService->getResourceFromFileArray($file, $room, $participant));
 		$this->assertEquals($expected, $actual);
+	}
+
+	public function testValidateSpeakerTimeline(): void {
+		$content = json_encode([
+			'version' => 1,
+			'duration' => 3.5,
+			'events' => [[
+				'time' => 1.2,
+				'speaking' => true,
+				'peerId' => 'peer-1',
+				'displayName' => 'Alice',
+			]],
+		], JSON_THROW_ON_ERROR);
+		$this->recordingService->validateSpeakerTimelineContent($content);
+		$this->addToAssertionCount(1);
+	}
+
+	public function testValidateSpeakerTimelineRejectsInvalidSchema(): void {
+		$this->expectException(\InvalidArgumentException::class);
+		$this->expectExceptionMessage('speaker_timeline_invalid_schema');
+		$this->recordingService->validateSpeakerTimelineContent('{"version":1,"duration":3,"events":[{"time":1}]}');
+	}
+
+	public function testValidateSpeakerTimelineRejectsOutOfOrderEvents(): void {
+		$this->expectException(\InvalidArgumentException::class);
+		$this->expectExceptionMessage('speaker_timeline_invalid_schema');
+		$this->recordingService->validateSpeakerTimelineContent('{"version":1,"duration":3,"events":[{"time":2,"speaking":true,"peerId":"peer-1"},{"time":1,"speaking":false,"peerId":"peer-1"}]}');
 	}
 
 	protected function createRoom(string $token = 'token123'): Room&MockObject {

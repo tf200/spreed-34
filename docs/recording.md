@@ -212,6 +212,41 @@ and provide the file name, to trigger the notification for the moderator.
     - (Additional) Status code:
         + `404 Not Found`: When the room is not found.
 
+## Speaker timeline metadata
+
+The recording backend can include an optional `speakerTimeline` JSON file in
+the multipart request to the recording store endpoint. This works both when the
+recording itself is included as `file` and when `fileName` completes a recording
+uploaded through the chunked WebDAV flow. The metadata is stored beside the
+recording as `<recording filename>.speakers.json`.
+
+The file is limited to 1 MiB and 20,000 chronological events. Times are seconds
+relative to the start of audio capture and must be between zero and `duration`.
+
+```json
+{
+  "version": 1,
+  "duration": 12.3,
+  "events": [
+    {
+      "time": 1.2,
+      "speaking": true,
+      "peerId": "peer-1",
+      "sessionId": "session-1",
+      "actorType": "users",
+      "actorId": "alice",
+      "userId": "alice",
+      "displayName": "Alice"
+    }
+  ]
+}
+```
+
+`peerId` and `speaking` are required for every event. Identity fields are
+optional because guest and federated participants do not always expose all of
+them. Consumers should prefer `actorType` plus `actorId` as stable identity and
+use `peerId` only as a call-session fallback.
+
 ### Stopped call recording
 
 * Data format:

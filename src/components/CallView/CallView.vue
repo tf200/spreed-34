@@ -176,6 +176,7 @@ import { getTalkConfig } from '../../services/CapabilitiesManager.ts'
 import { EventBus } from '../../services/EventBus.ts'
 import { useCallViewStore } from '../../stores/callView.ts'
 import { useSettingsStore } from '../../stores/settings.ts'
+import { recordSpeakerState } from '../../utils/speakerTimeline.js'
 import { callParticipantCollection, localCallParticipantModel, localMediaModel } from '../../utils/webrtc/index.js'
 import RemoteVideoBlocker from '../../utils/webrtc/RemoteVideoBlocker.js'
 import { placeholderImage, placeholderModel, placeholderName, placeholderSharedData } from './Grid/gridPlaceholders.ts'
@@ -591,6 +592,9 @@ export default {
 					return addedModel.attributes.speaking
 				}, function(speaking) {
 					this._setSpeaking(addedModel.attributes.peerId, speaking)
+					if (this.isRecording) {
+						recordSpeakerState(addedModel, speaking)
+					}
 				})
 
 				this.speakers.push({
