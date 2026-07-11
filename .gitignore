@@ -37,3 +37,5 @@
 
 # JetBrains Fleet settings
 /.fleet
+.env
+
