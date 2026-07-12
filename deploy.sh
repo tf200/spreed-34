@@ -57,6 +57,9 @@ ssh "$VPS_USER@$VPS_HOST" "
   # Set ownership of the app folder to www-data inside the container
   docker exec -u root $CONTAINER_NAME chown -R www-data:www-data /var/www/html/custom_apps/$APP_NAME
 
+  # Run upgrade to apply any version bumps or migrations
+  docker exec -u www-data $CONTAINER_NAME php occ upgrade
+
   # Tell Nextcloud to update/enable the app
   docker exec -u www-data $CONTAINER_NAME php occ app:enable $APP_NAME
 "
