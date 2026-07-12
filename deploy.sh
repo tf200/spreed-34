@@ -50,17 +50,15 @@ rsync -avz --delete \
   ./ "$VPS_USER@$VPS_HOST:$VPS_NC_PATH/custom_apps/$APP_NAME/"
 
 # ==========================================
-# 3. DOCKER COMMANDS: SET PERMISSIONS AND UPDATE APP
+# 3. DOCKER COMMANDS: SET PERMISSIONS AND RELOAD APP
 # ==========================================
 echo "🔧 Setting permissions and enabling app inside Docker container..."
 ssh "$VPS_USER@$VPS_HOST" "
   # Set ownership of the app folder to www-data inside the container
   docker exec -u root $CONTAINER_NAME chown -R www-data:www-data /var/www/html/custom_apps/$APP_NAME
 
-  # Run upgrade to apply any version bumps or migrations
-  docker exec -u www-data $CONTAINER_NAME php occ upgrade
-
-  # Tell Nextcloud to update/enable the app
+  # Reload the deployed app without triggering an App Store update.
+  docker exec -u www-data $CONTAINER_NAME php occ app:disable $APP_NAME
   docker exec -u www-data $CONTAINER_NAME php occ app:enable $APP_NAME
 "
 
