@@ -56,7 +56,7 @@ class RecordingAiOperation extends SnowflakeAwareEntity {
 	protected int $recordingFileId = 0;
 	protected string $ownerId = '';
 	protected string $roomToken = '';
-	protected string $state = self::STATE_QUEUED;
+	protected string $state = '';
 	protected ?string $gcsObject = null;
 	protected ?string $speechOperation = null;
 	protected ?string $speechResponse = null;

@@ -238,7 +238,8 @@ class RecordingService {
 				throw new InvalidArgumentException('speaker_timeline_invalid_schema');
 			}
 			foreach (['sessionId', 'actorType', 'actorId', 'userId', 'displayName'] as $field) {
-				if (array_key_exists($field, $event) && !$this->isValidTimelineString($event[$field], true)) {
+				$maxLength = $field === 'sessionId' ? 1024 : 255;
+				if (array_key_exists($field, $event) && !$this->isValidTimelineString($event[$field], true, $maxLength)) {
 					throw new InvalidArgumentException('speaker_timeline_invalid_schema');
 				}
 			}
@@ -246,9 +247,9 @@ class RecordingService {
 		}
 	}
 
-	private function isValidTimelineString(mixed $value, bool $nullable): bool {
+	private function isValidTimelineString(mixed $value, bool $nullable, int $maxLength = 255): bool {
 		return ($nullable && $value === null)
-			|| (is_string($value) && $value !== '' && strlen($value) <= 255);
+			|| (is_string($value) && $value !== '' && strlen($value) <= $maxLength);
 	}
 
 	/**
@@ -457,6 +458,9 @@ class RecordingService {
 			}
 		} catch (\InvalidArgumentException $e) {
 			$this->logger->error('Google AI recording configuration is invalid', ['exception' => $e]);
+			return;
+		} catch (\Throwable $e) {
+			$this->logger->error('Could not schedule Google AI processing for call recording', ['exception' => $e]);
 			return;
 		}
 

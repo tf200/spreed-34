@@ -37,6 +37,7 @@ class RecordingAiServiceTest extends TestCase {
 			$this->assertSame('alice', $operation->getOwnerId());
 			$this->assertSame('room-token', $operation->getRoomToken());
 			$this->assertSame(RecordingAiOperation::STATE_QUEUED, $operation->getState());
+			$this->assertArrayHasKey('state', $operation->getUpdatedFields());
 			$this->assertSame(1783886400, $operation->getDeadlineAt()->getTimestamp());
 			return $operation;
 		});

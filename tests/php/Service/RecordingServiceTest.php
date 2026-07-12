@@ -223,6 +223,22 @@ class RecordingServiceTest extends TestCase {
 		$this->addToAssertionCount(1);
 	}
 
+	public function testValidateSpeakerTimelineAcceptsLongSessionId(): void {
+		$content = json_encode([
+			'version' => 1,
+			'duration' => 10.0,
+			'events' => [[
+				'time' => 1.0,
+				'speaking' => true,
+				'peerId' => 'peer-1',
+				'sessionId' => str_repeat('a', 512),
+			]],
+		], JSON_THROW_ON_ERROR);
+
+		$this->recordingService->validateSpeakerTimelineContent($content);
+		$this->addToAssertionCount(1);
+	}
+
 	protected function createRoom(string $token = 'token123'): Room&MockObject {
 		$room = $this->createMock(Room::class);
 		$room->method('getToken')->willReturn($token);

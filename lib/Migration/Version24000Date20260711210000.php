@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace OCA\Talk\Migration;
 
 use Closure;
+use OCA\Talk\Model\RecordingAiOperation;
 use OCP\DB\ISchemaWrapper;
 use OCP\DB\Types;
 use OCP\Migration\IOutput;
@@ -30,7 +31,7 @@ class Version24000Date20260711210000 extends SimpleMigrationStep {
 		$table->addColumn('recording_file_id', Types::BIGINT, ['notnull' => true, 'unsigned' => true]);
 		$table->addColumn('owner_id', Types::STRING, ['notnull' => true, 'length' => 64]);
 		$table->addColumn('room_token', Types::STRING, ['notnull' => true, 'length' => 64]);
-		$table->addColumn('state', Types::STRING, ['notnull' => true, 'length' => 32]);
+		$table->addColumn('state', Types::STRING, ['notnull' => true, 'length' => 32, 'default' => RecordingAiOperation::STATE_QUEUED]);
 		$table->addColumn('gcs_object', Types::STRING, ['notnull' => false, 'length' => 255]);
 		$table->addColumn('speech_operation', Types::STRING, ['notnull' => false, 'length' => 255]);
 		$table->addColumn('speech_response', Types::TEXT, ['notnull' => false]);
