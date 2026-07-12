@@ -47,7 +47,6 @@ class RecordingAiService {
 		$operation->setState(RecordingAiOperation::STATE_QUEUED);
 		$operation->setNextAttemptAt($now);
 		$operation->setDeadlineAt($deadline);
-		$operation->setCreatedAt($now);
 		$operation->setUpdatedAt($now);
 		$operation = $this->mapper->insert($operation);
 		$this->jobList->add(SubmitRecordingAi::class, ['operationId' => (int)$operation->getId()]);

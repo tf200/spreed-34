@@ -37,7 +37,7 @@ class RecordingAiServiceTest extends TestCase {
 			$this->assertSame('alice', $operation->getOwnerId());
 			$this->assertSame('room-token', $operation->getRoomToken());
 			$this->assertSame(RecordingAiOperation::STATE_QUEUED, $operation->getState());
-			$this->assertSame(86400, $operation->getDeadlineAt()->getTimestamp() - $operation->getCreatedAt()->getTimestamp());
+			$this->assertSame(1783886400, $operation->getDeadlineAt()->getTimestamp());
 			return $operation;
 		});
 		$config = $this->createMock(GoogleAiConfig::class);

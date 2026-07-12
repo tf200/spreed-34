@@ -39,8 +39,6 @@ use OCP\DB\Types;
  * @method void setLastErrorCode(?string $value)
  * @method string|null getLastErrorMessage()
  * @method void setLastErrorMessage(?string $value)
- * @method \DateTime getCreatedAt()
- * @method void setCreatedAt(\DateTime $value)
  * @method \DateTime getUpdatedAt()
  * @method void setUpdatedAt(\DateTime $value)
  */
@@ -68,7 +66,6 @@ class RecordingAiOperation extends SnowflakeAwareEntity {
 	protected ?\DateTime $deadlineAt = null;
 	protected ?string $lastErrorCode = null;
 	protected ?string $lastErrorMessage = null;
-	protected ?\DateTime $createdAt = null;
 	protected ?\DateTime $updatedAt = null;
 
 	public function __construct() {
@@ -76,7 +73,7 @@ class RecordingAiOperation extends SnowflakeAwareEntity {
 		$this->addType('attempts', Types::INTEGER);
 		$this->addType('speechResponse', Types::TEXT);
 		$this->addType('transcript', Types::TEXT);
-		foreach (['nextAttemptAt', 'deadlineAt', 'createdAt', 'updatedAt'] as $field) {
+		foreach (['nextAttemptAt', 'deadlineAt', 'updatedAt'] as $field) {
 			$this->addType($field, Types::DATETIME);
 		}
 	}

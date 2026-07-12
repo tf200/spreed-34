@@ -40,7 +40,6 @@ class Version24000Date20260711210000 extends SimpleMigrationStep {
 		$table->addColumn('deadline_at', Types::DATETIME, ['notnull' => true]);
 		$table->addColumn('last_error_code', Types::STRING, ['notnull' => false, 'length' => 64]);
 		$table->addColumn('last_error_message', Types::TEXT, ['notnull' => false]);
-		$table->addColumn('created_at', Types::DATETIME, ['notnull' => true]);
 		$table->addColumn('updated_at', Types::DATETIME, ['notnull' => true]);
 		$table->setPrimaryKey(['id']);
 		$table->addUniqueIndex(['recording_file_id'], 'trai_recording');
