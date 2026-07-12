@@ -48,7 +48,7 @@ OCA.Talk.instance = instance
 OCA.Talk.signalingGetSettingsForRecording = signalingGetSettingsForRecording
 OCA.Talk.signalingJoinCallForRecording = signalingJoinCallForRecording
 OCA.Talk.signalingKill = signalingKill
-OCA.Talk.startSpeakerTimeline = startSpeakerTimeline
+OCA.Talk.startSpeakerTimeline = () => startSpeakerTimeline(instance.callParticipantModels)
 OCA.Talk.stopSpeakerTimeline = stopSpeakerTimeline
 
 export default instance

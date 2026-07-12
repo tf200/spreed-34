@@ -51,6 +51,17 @@ describe('speakerTimeline', () => {
 		})
 	})
 
+	test('captures participants already speaking when collection starts', () => {
+		performance.now.mockReturnValueOnce(1000)
+		startSpeakerTimeline([{ attributes: { peerId: 'peer-1', name: 'Alice', speaking: true } }])
+		performance.now.mockReturnValueOnce(2000)
+
+		expect(stopSpeakerTimeline().events).toEqual([
+			expect.objectContaining({ time: 0, speaking: true, peerId: 'peer-1' }),
+			expect.objectContaining({ time: 1, speaking: false, peerId: 'peer-1' }),
+		])
+	})
+
 	test('deduplicates state and closes active speakers when stopped', () => {
 		performance.now.mockReturnValueOnce(1000)
 		startSpeakerTimeline()
@@ -59,6 +70,22 @@ describe('speakerTimeline', () => {
 		recordSpeakerState(participant, true)
 		recordSpeakerState(participant, true)
 		performance.now.mockReturnValueOnce(2000)
+
+		expect(stopSpeakerTimeline().events).toEqual([
+			expect.objectContaining({ time: 0.5, speaking: true }),
+			expect.objectContaining({ time: 1, speaking: false }),
+		])
+	})
+
+	test('normalizes a cleared speaking state to false', () => {
+		performance.now.mockReturnValueOnce(1000)
+		startSpeakerTimeline()
+		const participant = { attributes: { peerId: 'peer-1', name: 'Alice' } }
+		performance.now.mockReturnValueOnce(1500)
+		recordSpeakerState(participant, true)
+		performance.now.mockReturnValueOnce(2000)
+		recordSpeakerState(participant, null)
+		performance.now.mockReturnValueOnce(2500)
 
 		expect(stopSpeakerTimeline().events).toEqual([
 			expect.objectContaining({ time: 0.5, speaking: true }),

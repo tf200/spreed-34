@@ -213,6 +213,15 @@ class RecordingService {
 			|| count($timeline['events']) > 20000) {
 			throw new InvalidArgumentException('speaker_timeline_invalid_schema');
 		}
+		foreach (['recordingOffset', 'clockUncertainty'] as $field) {
+			if (array_key_exists($field, $timeline)
+				&& ((!is_int($timeline[$field]) && !is_float($timeline[$field]))
+					|| !is_finite((float)$timeline[$field])
+					|| (float)$timeline[$field] < 0
+					|| (float)$timeline[$field] > 60)) {
+				throw new InvalidArgumentException('speaker_timeline_invalid_schema');
+			}
+		}
 
 		$previousTime = 0.0;
 		foreach ($timeline['events'] as $event) {

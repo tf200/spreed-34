@@ -210,6 +210,19 @@ class RecordingServiceTest extends TestCase {
 		$this->recordingService->validateSpeakerTimelineContent('{"version":1,"duration":3,"events":[{"time":2,"speaking":true,"peerId":"peer-1"},{"time":1,"speaking":false,"peerId":"peer-1"}]}');
 	}
 
+	public function testValidateSpeakerTimelineAcceptsClockAlignment(): void {
+		$content = json_encode([
+			'version' => 1,
+			'duration' => 10.0,
+			'recordingOffset' => 0.4,
+			'clockUncertainty' => 0.05,
+			'events' => [],
+		], JSON_THROW_ON_ERROR);
+
+		$this->recordingService->validateSpeakerTimelineContent($content);
+		$this->addToAssertionCount(1);
+	}
+
 	protected function createRoom(string $token = 'token123'): Room&MockObject {
 		$room = $this->createMock(Room::class);
 		$room->method('getToken')->willReturn($token);

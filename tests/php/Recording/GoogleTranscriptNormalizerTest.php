@@ -47,4 +47,45 @@ class GoogleTranscriptNormalizerTest extends TestCase {
 		]]]]]]]];
 		$this->assertSame("**Speaker 3** · 00:01\nHello", (new GoogleTranscriptNormalizer())->toMarkdown($response, null));
 	}
+
+	public function testAttributesWordsIndividuallyWhenDiarizationLabelDoesNotChange(): void {
+		$response = ['results' => [['results' => [['alternatives' => [['words' => [
+			['word' => 'Hello', 'startOffset' => '1s', 'endOffset' => '1.5s', 'speakerLabel' => '1'],
+			['word' => 'Hi', 'startOffset' => '3s', 'endOffset' => '3.5s', 'speakerLabel' => '1'],
+		]]]]]]]];
+		$timeline = ['version' => 1, 'events' => [
+			['time' => 0.8, 'speaking' => true, 'peerId' => 'a', 'sessionId' => 'session-a', 'displayName' => 'Alice'],
+			['time' => 1.7, 'speaking' => false, 'peerId' => 'a'],
+			['time' => 2.8, 'speaking' => true, 'peerId' => 'b', 'sessionId' => 'session-b', 'displayName' => 'Bob'],
+			['time' => 3.7, 'speaking' => false, 'peerId' => 'b'],
+		]];
+
+		$this->assertSame("**Alice** · 00:01\nHello\n\n**Bob** · 00:03\nHi", (new GoogleTranscriptNormalizer())->toMarkdown($response, $timeline));
+	}
+
+	public function testAppliesRecordingClockOffset(): void {
+		$response = ['results' => [['results' => [['alternatives' => [['words' => [
+			['word' => 'Hello', 'startOffset' => '2.2s', 'endOffset' => '2.6s', 'speakerLabel' => '1'],
+		]]]]]]]];
+		$timeline = ['version' => 1, 'recordingOffset' => 2.0, 'clockUncertainty' => 0.1, 'events' => [
+			['time' => 0.0, 'speaking' => true, 'peerId' => 'a', 'sessionId' => 'session-a', 'displayName' => 'Alice'],
+			['time' => 1.0, 'speaking' => false, 'peerId' => 'a'],
+		]];
+
+		$this->assertSame("**Alice** · 00:02\nHello", (new GoogleTranscriptNormalizer())->toMarkdown($response, $timeline));
+	}
+
+	public function testDoesNotCombineDifferentParticipantsWithSameDisplayName(): void {
+		$response = ['results' => [['results' => [['alternatives' => [['words' => [
+			['word' => 'Hello', 'startOffset' => '1s', 'endOffset' => '2s', 'speakerLabel' => '4'],
+		]]]]]]]];
+		$timeline = ['version' => 1, 'events' => [
+			['time' => 1.0, 'speaking' => true, 'peerId' => 'a', 'sessionId' => 'session-a', 'displayName' => 'Alex'],
+			['time' => 2.0, 'speaking' => false, 'peerId' => 'a'],
+			['time' => 1.0, 'speaking' => true, 'peerId' => 'b', 'sessionId' => 'session-b', 'displayName' => 'Alex'],
+			['time' => 2.0, 'speaking' => false, 'peerId' => 'b'],
+		]];
+
+		$this->assertSame("**Speaker 4** · 00:01\nHello", (new GoogleTranscriptNormalizer())->toMarkdown($response, $timeline));
+	}
 }

@@ -556,6 +556,9 @@ export default {
 			const removedModelIds = Object.keys(this.sharedDatas).filter((sharedDataId) => models.find((model) => model.attributes.peerId === sharedDataId) === undefined)
 
 			removedModelIds.forEach((removedModelId) => {
+				if (this.isRecording) {
+					recordSpeakerState(this.sharedDatas[removedModelId].participant, false)
+				}
 				this.sharedDatas[removedModelId].remoteVideoBlocker.destroy()
 
 				delete this.sharedDatas[removedModelId]
@@ -580,6 +583,7 @@ export default {
 
 			addedModels.forEach((addedModel) => {
 				const sharedData = {
+					participant: addedModel,
 					promoted: false,
 					remoteVideoBlocker: new RemoteVideoBlocker(addedModel),
 					screenVisible: false,
