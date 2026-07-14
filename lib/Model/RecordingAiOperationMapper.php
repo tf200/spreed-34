@@ -35,6 +35,21 @@ class RecordingAiOperationMapper extends QBMapper {
 		return $this->findEntity($query);
 	}
 
+	public function claimForUpload(int $id, \DateTime $now, \DateTime $leaseUntil): bool {
+		$query = $this->db->getQueryBuilder();
+		$query->update($this->getTableName())
+			->set('state', $query->createNamedParameter(RecordingAiOperation::STATE_UPLOADING))
+			->set('next_attempt_at', $query->createNamedParameter($leaseUntil, IQueryBuilder::PARAM_DATETIME_MUTABLE))
+			->set('updated_at', $query->createNamedParameter($now, IQueryBuilder::PARAM_DATETIME_MUTABLE))
+			->where($query->expr()->eq('id', $query->createNamedParameter($id, IQueryBuilder::PARAM_INT)))
+			->andWhere($query->expr()->in('state', $query->createNamedParameter([
+				RecordingAiOperation::STATE_QUEUED,
+				RecordingAiOperation::STATE_UPLOADING,
+			], IQueryBuilder::PARAM_STR_ARRAY)))
+			->andWhere($query->expr()->lte('next_attempt_at', $query->createNamedParameter($now, IQueryBuilder::PARAM_DATETIME_MUTABLE)));
+		return $query->executeStatement() === 1;
+	}
+
 	/** @return list<RecordingAiOperation> */
 	public function findDue(\DateTimeInterface $now, int $limit = 20): array {
 		$query = $this->db->getQueryBuilder();

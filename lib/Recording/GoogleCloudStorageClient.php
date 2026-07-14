@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace OCA\Talk\Recording;
 
 use GuzzleHttp\Exception\ClientException;
+use GuzzleHttp\Exception\RequestException;
 use OCP\Files\File;
 use OCP\Http\Client\IClientService;
 use OCP\IConfig;
@@ -50,16 +51,38 @@ class GoogleCloudStorageClient {
 				'timeout' => 3600,
 			]);
 			$payload = json_decode((string)$response->getBody(), true, 16, JSON_THROW_ON_ERROR);
+		} catch (GoogleApiException $e) {
+			throw $e;
+		} catch (RequestException $e) {
+			throw new GoogleApiException($this->getRequestError('Cloud Storage upload failed', $e));
 		} catch (\Throwable) {
 			throw new GoogleApiException('Cloud Storage upload failed');
 		} finally {
-			fclose($stream);
+			if (is_resource($stream)) {
+				fclose($stream);
+			}
 		}
 
 		if (!is_array($payload) || ($payload['name'] ?? null) !== $object) {
 			throw new GoogleApiException('Cloud Storage upload response was invalid');
 		}
 		return $object;
+	}
+
+	private function getRequestError(string $prefix, RequestException $exception): string {
+		$response = $exception->getResponse();
+		if ($response === null) {
+			return $prefix;
+		}
+		$message = '';
+		try {
+			$payload = json_decode((string)$response->getBody(), true, 8, JSON_THROW_ON_ERROR);
+			$message = is_string($payload['error']['message'] ?? null) ? $payload['error']['message'] : '';
+		} catch (\Throwable) {
+			// The HTTP status still provides a safe diagnostic.
+		}
+		$message = preg_replace('/\s+/', ' ', $message) ?? '';
+		return substr($prefix . ' (HTTP ' . $response->getStatusCode() . ')' . ($message !== '' ? ': ' . $message : ''), 0, 500);
 	}
 
 	public function delete(string $object): void {

@@ -32,10 +32,13 @@ class RecordingAiProcessor {
 	}
 
 	public function submit(int $operationId): void {
-		$operation = $this->mapper->findById($operationId);
-		if (!in_array($operation->getState(), [RecordingAiOperation::STATE_QUEUED, RecordingAiOperation::STATE_UPLOADING], true)) {
+		$now = $this->timeFactory->getDateTime();
+		$leaseUntil = clone $now;
+		$leaseUntil->modify('+1 hour');
+		if (!$this->mapper->claimForUpload($operationId, $now, $leaseUntil)) {
 			return;
 		}
+		$operation = $this->mapper->findById($operationId);
 		$nodes = $this->rootFolder->getUserFolder($operation->getOwnerId())->getById($operation->getRecordingFileId());
 		$file = array_pop($nodes);
 		if (!$file instanceof File) {
@@ -43,18 +46,18 @@ class RecordingAiProcessor {
 			return;
 		}
 
-		$operation->setState(RecordingAiOperation::STATE_UPLOADING);
-		$this->touch($operation);
 		try {
 			$object = $this->storage->upload($file, (int)$operation->getId());
 			$operation->setGcsObject($object);
-			$operation->setSpeechOperation($this->speech->submit($object));
+			$operation->setSpeechOperation($this->speech->submit($object, $file->getMimeType()));
 			$operation->setState(RecordingAiOperation::STATE_TRANSCRIBING);
 			$operation->setAttempts(0);
+			$operation->setLastErrorCode(null);
+			$operation->setLastErrorMessage(null);
 			$operation->setNextAttemptAt($this->later(60));
 			$this->touch($operation);
-		} catch (GoogleApiException) {
-			$this->retryOrFail($operation, 'submission_failed');
+		} catch (GoogleApiException $e) {
+			$this->retryOrFail($operation, 'submission_failed', $e->getMessage());
 		}
 	}
 
@@ -98,8 +101,8 @@ class RecordingAiProcessor {
 				$operation->setState(RecordingAiOperation::STATE_COMPLETED);
 			}
 			$this->touch($operation);
-		} catch (\Throwable) {
-			$this->fail($operation, 'mapping_failed', 'Transcript normalization or storage failed');
+		} catch (\Throwable $e) {
+			$this->fail($operation, 'mapping_failed', $this->getErrorMessage('Transcript normalization or storage failed', $e));
 		}
 	}
 
@@ -127,9 +130,11 @@ class RecordingAiProcessor {
 		}
 	}
 
-	private function retryOrFail(RecordingAiOperation $operation, string $code): void {
+	private function retryOrFail(RecordingAiOperation $operation, string $code, ?string $message = null): void {
 		$attempts = $operation->getAttempts() + 1;
 		$operation->setAttempts($attempts);
+		$operation->setLastErrorCode($code);
+		$operation->setLastErrorMessage($message ?? 'Google processing request failed');
 		if ($attempts >= 8 || $operation->getDeadlineAt() <= $this->timeFactory->getDateTime()) {
 			$this->fail($operation, $code, 'Google processing retry limit exceeded');
 			$this->cleanup($operation);
@@ -168,5 +173,10 @@ class RecordingAiProcessor {
 		$date = $this->timeFactory->getDateTime();
 		$date->modify('+' . $seconds . ' seconds');
 		return $date;
+	}
+
+	private function getErrorMessage(string $prefix, \Throwable $exception): string {
+		$message = preg_replace('/\s+/', ' ', $exception->getMessage()) ?? '';
+		return substr($prefix . ($message !== '' ? ': ' . $message : ''), 0, 500);
 	}
 }

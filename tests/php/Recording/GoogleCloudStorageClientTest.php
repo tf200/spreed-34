@@ -43,7 +43,10 @@ class GoogleCloudStorageClientTest extends TestCase {
 		$client = $this->createMock(IClient::class);
 		$client->expects($this->once())->method('post')
 			->with($this->stringContains('name=recordings%2Finstance%2F7%2F42'), $this->callback(fn (array $options): bool => is_resource($options['body'])))
-			->willReturn($response);
+			->willReturnCallback(function (string $url, array $options) use ($response): IResponse {
+				fclose($options['body']);
+				return $response;
+			});
 		$clientService = $this->createMock(IClientService::class);
 		$clientService->method('newClient')->willReturn($client);
 		$serverConfig = $this->createMock(IConfig::class);

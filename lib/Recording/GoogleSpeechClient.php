@@ -19,13 +19,18 @@ class GoogleSpeechClient {
 	) {
 	}
 
-	public function submit(string $gcsObject): string {
+	public function submit(string $gcsObject, string $mimeType): string {
 		$config = $this->config->getValidated();
+		$encoding = str_contains($mimeType, 'ogg') ? 'OGG_OPUS' : 'WEBM_OPUS';
 		$url = $this->getEndpoint($config['location']) . '/v2/projects/' . rawurlencode($config['project'])
 			. '/locations/' . rawurlencode($config['location']) . '/recognizers/_:batchRecognize';
 		$body = [
 			'config' => [
-				'autoDecodingConfig' => new \stdClass(),
+				'explicitDecodingConfig' => [
+					'encoding' => $encoding,
+					'sampleRateHertz' => 48000,
+					'audioChannelCount' => 2,
+				],
 				'languageCodes' => [$config['language']],
 				'model' => $config['speechModel'],
 				'features' => [
@@ -41,8 +46,7 @@ class GoogleSpeechClient {
 
 		$payload = $this->request('post', $url, ['json' => $body, 'timeout' => 30]);
 		$operation = $payload['name'] ?? null;
-		$prefix = 'projects/' . $config['project'] . '/locations/' . $config['location'] . '/operations/';
-		if (!is_string($operation) || !str_starts_with($operation, $prefix)) {
+		if (!is_string($operation) || !$this->isValidOperation($operation, $config['location'])) {
 			throw new GoogleApiException('Speech recognition submission response was invalid');
 		}
 		return $operation;
@@ -53,8 +57,7 @@ class GoogleSpeechClient {
 	 */
 	public function poll(string $operation): array {
 		$config = $this->config->getValidated();
-		$prefix = 'projects/' . $config['project'] . '/locations/' . $config['location'] . '/operations/';
-		if (!str_starts_with($operation, $prefix)) {
+		if (!$this->isValidOperation($operation, $config['location'])) {
 			throw new GoogleApiException('Speech recognition operation name was invalid');
 		}
 		$payload = $this->request('get', $this->getEndpoint($config['location']) . '/v2/' . $operation, ['timeout' => 30]);
@@ -87,5 +90,12 @@ class GoogleSpeechClient {
 
 	private function getEndpoint(string $location): string {
 		return 'https://' . $location . '-speech.googleapis.com';
+	}
+
+	private function isValidOperation(string $operation, string $location): bool {
+		return preg_match(
+			'#^projects/[^/]+/locations/' . preg_quote($location, '#') . '/operations/[^/]+$#',
+			$operation,
+		) === 1;
 	}
 }

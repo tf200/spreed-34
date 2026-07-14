@@ -18,7 +18,7 @@ use OCP\Http\Client\IResponse;
 use Test\TestCase;
 
 class GoogleSpeechClientTest extends TestCase {
-	private const OPERATION = 'projects/valid-project/locations/eu/operations/operation-1';
+	private const OPERATION = 'projects/713022376931/locations/eu/operations/operation-1';
 
 	public function testSubmitsChirpBatchRecognition(): void {
 		$response = $this->createMock(IResponse::class);
@@ -29,13 +29,18 @@ class GoogleSpeechClientTest extends TestCase {
 				'https://eu-speech.googleapis.com/v2/projects/valid-project/locations/eu/recognizers/_:batchRecognize',
 				$this->callback(function (array $options): bool {
 					return $options['json']['config']['model'] === 'chirp_3'
+						&& $options['json']['config']['explicitDecodingConfig'] === [
+							'encoding' => 'WEBM_OPUS',
+							'sampleRateHertz' => 48000,
+							'audioChannelCount' => 2,
+						]
 						&& $options['json']['config']['languageCodes'] === ['en-US']
 						&& $options['json']['files'][0]['uri'] === 'gs://valid-bucket/recordings/instance/7/42'
 						&& $options['json']['processingStrategy'] === 'DYNAMIC_BATCHING';
 				}),
 			)->willReturn($response);
 
-		$this->assertSame(self::OPERATION, $this->createClient($client)->submit('recordings/instance/7/42'));
+		$this->assertSame(self::OPERATION, $this->createClient($client)->submit('recordings/instance/7/42', 'video/webm'));
 	}
 
 	public function testPollsPendingOperation(): void {
