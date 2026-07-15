@@ -47,6 +47,7 @@ class RecordingArtifactServiceTest extends TestCase {
 	private AttachmentService&MockObject $attachmentService;
 	private IShareManager&MockObject $shareManager;
 	private ISystemTagObjectMapper&MockObject $systemTagMapper;
+	private LoggerInterface&MockObject $logger;
 	private RecordingArtifactService $service;
 	private \DateTime $now;
 
@@ -62,6 +63,7 @@ class RecordingArtifactServiceTest extends TestCase {
 		$this->attachmentService = $this->createMock(AttachmentService::class);
 		$this->shareManager = $this->createMock(IShareManager::class);
 		$this->systemTagMapper = $this->createMock(ISystemTagObjectMapper::class);
+		$this->logger = $this->createMock(LoggerInterface::class);
 		$this->now = new \DateTime('2026-07-14T21:00:00+00:00');
 		$this->timeFactory->method('getDateTime')->willReturn($this->now);
 		$this->service = new RecordingArtifactService(
@@ -75,7 +77,7 @@ class RecordingArtifactServiceTest extends TestCase {
 			$this->attachmentService,
 			$this->shareManager,
 			$this->systemTagMapper,
-			$this->createMock(LoggerInterface::class),
+			$this->logger,
 		);
 	}
 
@@ -210,7 +212,12 @@ class RecordingArtifactServiceTest extends TestCase {
 		$publishedFile->method('getContent')->willReturn('transcript');
 		$publishedFile->method('getEtag')->willReturn('published-etag');
 		$this->conversationFolderService->method('finalizeUploadedFile')->with($target, $staged, 'recording.md')->willReturn(['node' => $publishedFile]);
-		$this->systemTagMapper->expects($this->once())->method('assignGeneratedByAITag')->with('456', 'files');
+		$tagException = new \RuntimeException('Tag creation is not permitted');
+		$this->systemTagMapper->expects($this->once())->method('assignGeneratedByAITag')->with('456', 'files')->willThrowException($tagException);
+		$this->logger->expects($this->once())->method('warning')->with('Failed to tag recording artifact as AI-generated', [
+			'fileId' => 456,
+			'exception' => $tagException,
+		]);
 		$this->mapper->expects($this->exactly(2))->method('updatePublication')->willReturn(true);
 		$this->mapper->method('findMessageIdByReference')->with(7, 'recording-artifact-123')->willReturn(null);
 		$comment = $this->createMock(IComment::class);

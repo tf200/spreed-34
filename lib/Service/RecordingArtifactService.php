@@ -239,7 +239,7 @@ class RecordingArtifactService {
 					throw new \RuntimeException('Published artifact is not a file');
 				}
 			}
-			$this->systemTagMapper->assignGeneratedByAITag((string)$file->getId(), 'files');
+			$this->assignGeneratedByAiTag($file);
 			$artifact = $this->ensurePublishedShare($room, $artifact, $file, $claimToken);
 			return [$artifact, $file, $this->messageParameters($artifact, $file)];
 		}
@@ -276,7 +276,7 @@ class RecordingArtifactService {
 		if (!$publishedFile instanceof File) {
 			throw new \RuntimeException('Published artifact is not a file');
 		}
-		$this->systemTagMapper->assignGeneratedByAITag((string)$publishedFile->getId(), 'files');
+		$this->assignGeneratedByAiTag($publishedFile);
 		$artifact = $this->ensurePublishedShare($room, $artifact, $publishedFile, $claimToken);
 		return [$artifact, $publishedFile, $this->messageParameters($artifact, $publishedFile)];
 	}
@@ -290,6 +290,17 @@ class RecordingArtifactService {
 			throw new \RuntimeException('Artifact source parent is not a folder');
 		}
 		return $targetFolder;
+	}
+
+	private function assignGeneratedByAiTag(File $file): void {
+		try {
+			$this->systemTagMapper->assignGeneratedByAITag((string)$file->getId(), 'files');
+		} catch (\Throwable $e) {
+			$this->logger->warning('Failed to tag recording artifact as AI-generated', [
+				'fileId' => $file->getId(),
+				'exception' => $e,
+			]);
+		}
 	}
 
 	private function ensurePublishedShare(Room $room, RecordingArtifact $artifact, File $file, string $claimToken): RecordingArtifact {

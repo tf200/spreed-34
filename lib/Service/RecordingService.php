@@ -564,20 +564,7 @@ class RecordingService {
 							throw new \RuntimeException('Recording artifact source is not a file');
 						}
 						$fileNode = $movedNode;
-						$this->systemTagMapper->assignGeneratedByAITag((string)$fileNode->getId(), 'files');
-						try {
-							$this->notifyStoredTranscript(
-								$room,
-								$participant,
-								$fileNode,
-								$aiTask,
-								(string)$artifact->getId(),
-								$artifact->getNotificationTimestamp(),
-							);
-						} catch (\Throwable $e) {
-							// The private draft remains available from the conversation sidebar.
-							$this->logger->error('Could not notify about recording artifact', ['exception' => $e]);
-						}
+						$this->assignGeneratedByAiTag($fileNode);
 					}
 				} else {
 					$sourceNodes = $recordingFolder->getById($artifact->getSourceFileId());
@@ -590,7 +577,22 @@ class RecordingService {
 								$fileNode = $movedNode;
 							}
 						}
-						$this->systemTagMapper->assignGeneratedByAITag((string)$fileNode->getId(), 'files');
+						$this->assignGeneratedByAiTag($fileNode);
+					}
+				}
+				if ($fileNode instanceof File) {
+					try {
+						$this->notifyStoredTranscript(
+							$room,
+							$participant,
+							$fileNode,
+							$aiTask,
+							(string)$artifact->getId(),
+							$artifact->getNotificationTimestamp(),
+						);
+					} catch (\Throwable $e) {
+						// The private draft remains available from the conversation sidebar.
+						$this->logger->error('Could not notify about recording artifact', ['exception' => $e]);
 					}
 				}
 			} catch (NoUserException) {
@@ -836,7 +838,9 @@ class RecordingService {
 				'objectId' => $file->getId(),
 				'artifactId' => $artifactId,
 			]);
-		$this->notificationManager->notify($notification);
+		if ($this->notificationManager->getCount($notification) === 0) {
+			$this->notificationManager->notify($notification);
+		}
 	}
 
 	private function findAvailableFileName(Folder $folder, string $fileName): string {
@@ -852,6 +856,17 @@ class RecordingService {
 			}
 		}
 		throw new \RuntimeException('Could not find an available recording artifact file name');
+	}
+
+	private function assignGeneratedByAiTag(File $file): void {
+		try {
+			$this->systemTagMapper->assignGeneratedByAITag((string)$file->getId(), 'files');
+		} catch (\Throwable $e) {
+			$this->logger->warning('Failed to tag recording artifact as AI-generated', [
+				'fileId' => $file->getId(),
+				'exception' => $e,
+			]);
+		}
 	}
 
 	public function notificationDismiss(Room $room, Participant $participant, int $timestamp, ?string $notificationSubject): void {

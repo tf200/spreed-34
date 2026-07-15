@@ -147,6 +147,55 @@ class RecordingServiceTest extends TestCase {
 		];
 	}
 
+	public function testGeneratedByAiTagFailureDoesNotBlockRecordingArtifact(): void {
+		$file = $this->createConfiguredMock(File::class, ['getId' => 434]);
+		$exception = new \RuntimeException('Tag creation is not permitted');
+		$this->systemTagMapper->expects($this->once())
+			->method('assignGeneratedByAITag')
+			->with('434', 'files')
+			->willThrowException($exception);
+		$this->logger->expects($this->once())
+			->method('warning')
+			->with('Failed to tag recording artifact as AI-generated', [
+				'fileId' => 434,
+				'exception' => $exception,
+			]);
+
+		self::invokePrivate($this->recordingService, 'assignGeneratedByAiTag', [$file]);
+	}
+
+	public static function dataStoredTranscriptNotification(): array {
+		return [
+			'new notification' => [0, 1],
+			'existing notification' => [1, 0],
+		];
+	}
+
+	#[DataProvider('dataStoredTranscriptNotification')]
+	public function testStoredTranscriptNotificationIsIdempotent(int $existing, int $notifications): void {
+		$room = $this->createRoom();
+		$participant = $this->createParticipant($room);
+		$file = $this->createConfiguredMock(File::class, ['getId' => 434]);
+		$notification = $this->createMock(INotification::class);
+		$notification->method('setApp')->willReturnSelf();
+		$notification->method('setDateTime')->willReturnSelf();
+		$notification->method('setObject')->willReturnSelf();
+		$notification->method('setUser')->willReturnSelf();
+		$notification->method('setSubject')->willReturnSelf();
+		$this->notificationManager->method('createNotification')->willReturn($notification);
+		$this->notificationManager->expects($this->once())->method('getCount')->with($notification)->willReturn($existing);
+		$this->notificationManager->expects($this->exactly($notifications))->method('notify')->with($notification);
+
+		$this->recordingService->notifyStoredTranscript(
+			$room,
+			$participant,
+			$file,
+			'transcript',
+			'106744985677172736',
+			1784123103,
+		);
+	}
+
 	#[DataProvider('dataValidateFileFormat')]
 	public function testValidateFileFormat(string $fileName, string $fileRealPath, string $exceptionMessage): void {
 		if ($exceptionMessage) {
