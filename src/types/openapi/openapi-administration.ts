@@ -164,6 +164,26 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/ocs/v2.php/apps/spreed/api/{apiVersion}/settings/recording/google": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Configure Google transcription and summarization
+         * @description This endpoint requires admin access
+         */
+        post: operations["settings-set-recording-google-settings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ocs/v2.php/apps/spreed/api/{apiVersion}/signaling/welcome/{serverId}": {
         parameters: {
             query?: never;
@@ -1065,6 +1085,109 @@ export interface operations {
         responses: {
             /** @description Successfully set new SIP settings */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description Current user is not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description Logged in account must be an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "settings-set-recording-google-settings": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required to be true for the API request to pass */
+                "OCS-APIRequest": boolean;
+            };
+            path: {
+                apiVersion: "v1";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Whether Google AI processing is enabled */
+                    enabled: boolean;
+                    /** @description Google Cloud project ID */
+                    project: string;
+                    /** @description Google Speech region */
+                    location: string;
+                    /** @description Google Cloud Storage bucket */
+                    bucket: string;
+                    /** @description Speech recognition language */
+                    language: string;
+                    /** @description Google Speech model */
+                    speechModel: string;
+                    /** @description Gemini region */
+                    geminiLocation: string;
+                    /** @description Gemini model */
+                    geminiModel: string;
+                    /**
+                     * @description Service account JSON credential
+                     * @default
+                     */
+                    serviceAccountJson?: string;
+                    /**
+                     * @description Whether to remove the stored credential
+                     * @default false
+                     */
+                    removeServiceAccount?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Settings updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description Settings are invalid */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

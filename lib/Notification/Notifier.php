@@ -330,21 +330,33 @@ class Notifier implements INotifier {
 			throw new AlreadyProcessedException();
 		}
 
-		$shareAction = $notification->createAction()
-			->setParsedLabel($l->t('Share to chat'))
-			->setPrimary(true)
-			->setLink(
-				$this->url->linkToOCSRouteAbsolute(
-					'spreed.Recording.shareToChat',
-					[
-						'apiVersion' => 'v1',
-						'fileId' => $file->getId(),
-						'timestamp' => $notification->getDateTime()->getTimestamp(),
-						'token' => $room->getToken()
-					]
-				),
-				IAction::TYPE_POST
-			);
+		if (isset($parameters['artifactId'])) {
+			$shareAction = $notification->createAction()
+				->setParsedLabel($l->t('Review and share'))
+				->setPrimary(true)
+				->setLink(
+					$this->url->linkToRouteAbsolute('spreed.Page.showCall', ['token' => $room->getToken()])
+						. '?reviewArtifact=' . rawurlencode((string)$parameters['artifactId'])
+						. '&notificationTimestamp=' . $notification->getDateTime()->getTimestamp(),
+					IAction::TYPE_WEB,
+				);
+		} else {
+			$shareAction = $notification->createAction()
+				->setParsedLabel($l->t('Share to chat'))
+				->setPrimary(true)
+				->setLink(
+					$this->url->linkToOCSRouteAbsolute(
+						'spreed.Recording.shareToChat',
+						[
+							'apiVersion' => 'v1',
+							'fileId' => $file->getId(),
+							'timestamp' => $notification->getDateTime()->getTimestamp(),
+							'token' => $room->getToken()
+						]
+					),
+					IAction::TYPE_POST
+				);
+		}
 		$dismissAction = $notification->createAction()
 			->setParsedLabel($l->t('Dismiss notification'))
 			->setLink(
@@ -363,14 +375,24 @@ class Notifier implements INotifier {
 			$subject = $l->t('Call recording now available');
 			$message = $l->t('The recording for the call in {call} was uploaded to {file}.');
 		} elseif ($notification->getSubject() === 'transcript_file_stored') {
-			$subject = $l->t('Transcript now available');
-			$message = $l->t('The transcript for the call in {call} was uploaded to {file}.');
+			if (isset($parameters['artifactId'])) {
+				$subject = $l->t('Transcript ready for review');
+				$message = $l->t('The transcript for the call in {call} is ready. Review and correct it before publishing it to the conversation.');
+			} else {
+				$subject = $l->t('Transcript now available');
+				$message = $l->t('The transcript for the call in {call} was uploaded to {file}.');
+			}
 		} elseif ($notification->getSubject() === 'transcript_failed') {
 			$subject = $l->t('Failed to transcript call recording');
 			$message = $l->t('The server failed to transcript the recording at {file} for the call in {call}. Please reach out to the administration.');
 		} elseif ($notification->getSubject() === 'summary_file_stored') {
-			$subject = $l->t('Call summary now available');
-			$message = $l->t('The summary for the call in {call} was uploaded to {file}.');
+			if (isset($parameters['artifactId'])) {
+				$subject = $l->t('Call summary ready for review');
+				$message = $l->t('The AI-generated summary for the call in {call} is ready for review before publishing.');
+			} else {
+				$subject = $l->t('Call summary now available');
+				$message = $l->t('The summary for the call in {call} was uploaded to {file}.');
+			}
 		} else {
 			$subject = $l->t('Failed to summarize call recording');
 			$message = $l->t('The server failed to summarize the recording at {file} for the call in {call}. Please reach out to the administration.');

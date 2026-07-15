@@ -74,6 +74,12 @@ class AttachmentService {
 		$this->attachmentMapper->insert($attachment);
 	}
 
+	public function ensureAttachmentEntry(Room $room, IComment $comment, string $messageType, array $parameters): void {
+		if (!$this->attachmentMapper->existsByMessageId((int)$comment->getId())) {
+			$this->createAttachmentEntry($room, $comment, $messageType, $parameters);
+		}
+	}
+
 	/**
 	 * @param Room $room
 	 * @param string $objectType

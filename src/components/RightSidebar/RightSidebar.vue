@@ -117,11 +117,22 @@
 				</div>
 			</NcAppSidebarTab>
 			<NcAppSidebarTab
+				v-if="actorStore.isLoggedIn"
+				id="recording-drafts"
+				key="recording-drafts"
+				:order="5"
+				:name="t('spreed', 'Recording drafts')">
+				<template #icon>
+					<IconFileDocumentEditOutline :size="20" />
+				</template>
+				<RecordingDraftsTab :token="token" :active="activeTab === 'recording-drafts'" />
+			</NcAppSidebarTab>
+			<NcAppSidebarTab
 				v-if="showSharedItemsTab"
 				id="shared-items"
 				key="shared-items"
 				ref="sharedItemsTab"
-				:order="5"
+				:order="6"
 				:name="t('spreed', 'Shared items')">
 				<template #icon>
 					<NcIconSvgWrapper :svg="IconPermMediaOutline" :size="20" inline />
@@ -147,6 +158,7 @@ import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import IconAccountMultipleOutline from 'vue-material-design-icons/AccountMultipleOutline.vue'
 import IconCogOutline from 'vue-material-design-icons/CogOutline.vue'
 import IconDotsCircle from 'vue-material-design-icons/DotsCircle.vue'
+import IconFileDocumentEditOutline from 'vue-material-design-icons/FileDocumentEditOutline.vue'
 import IconInformationOutline from 'vue-material-design-icons/InformationOutline.vue'
 import IconMessageOutline from 'vue-material-design-icons/MessageOutline.vue'
 import IconMessageTextOutline from 'vue-material-design-icons/MessageTextOutline.vue'
@@ -156,6 +168,7 @@ import BreakoutRoomsTab from './BreakoutRooms/BreakoutRoomsTab.vue'
 import InternalSignalingHint from './InternalSignalingHint.vue'
 import LobbyStatus from './LobbyStatus.vue'
 import ParticipantsTab from './Participants/ParticipantsTab.vue'
+import RecordingDraftsTab from './RecordingDrafts/RecordingDraftsTab.vue'
 import RightSidebarContent from './RightSidebarContent.vue'
 import SearchMessagesTab from './SearchMessages/SearchMessagesTab.vue'
 import SharedItemsTab from './SharedItems/SharedItemsTab.vue'
@@ -186,6 +199,7 @@ export default {
 		NcButton,
 		NcIconSvgWrapper,
 		ParticipantsTab,
+		RecordingDraftsTab,
 		RightSidebarContent,
 		SearchMessagesTab,
 		SetGuestUsername,
@@ -197,6 +211,7 @@ export default {
 		IconCogOutline,
 		IconDotsCircle,
 		IconInformationOutline,
+		IconFileDocumentEditOutline,
 		IconMessageOutline,
 		IconMessageTextOutline,
 	},

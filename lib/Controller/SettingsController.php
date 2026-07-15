@@ -91,6 +91,24 @@ class SettingsController extends OCSController {
 		return new DataResponse(null);
 	}
 
+	/**
+	 * Configure Google transcription and summarization
+	 *
+	 * @param bool $enabled Whether Google AI processing is enabled
+	 * @param string $project Google Cloud project ID
+	 * @param string $location Google Speech region
+	 * @param string $bucket Google Cloud Storage bucket
+	 * @param string $language Speech recognition language
+	 * @param string $speechModel Google Speech model
+	 * @param string $geminiLocation Gemini region
+	 * @param string $geminiModel Gemini model
+	 * @param string $serviceAccountJson Service account JSON credential
+	 * @param bool $removeServiceAccount Whether to remove the stored credential
+	 * @return DataResponse<Http::STATUS_OK, null, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, null, array{}>
+	 *
+	 * 200: Settings updated
+	 * 400: Settings are invalid
+	 */
 	#[OpenAPI(scope: OpenAPI::SCOPE_ADMINISTRATION, tags: ['settings'])]
 	#[ApiRoute(verb: 'POST', url: '/api/{apiVersion}/settings/recording/google', requirements: ['apiVersion' => '(v1)'])]
 	public function setRecordingGoogleSettings(

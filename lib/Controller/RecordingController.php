@@ -12,20 +12,26 @@ use GuzzleHttp\Exception\ConnectException;
 use InvalidArgumentException;
 use OCA\Talk\Config;
 use OCA\Talk\Exceptions\ParticipantNotFoundException;
+use OCA\Talk\Exceptions\RecordingArtifactException;
 use OCA\Talk\Exceptions\RoomNotFoundException;
 use OCA\Talk\Exceptions\UnauthorizedException;
 use OCA\Talk\Manager;
 use OCA\Talk\Middleware\Attribute\RequireLoggedInModeratorParticipant;
+use OCA\Talk\Middleware\Attribute\RequireLoggedInParticipant;
 use OCA\Talk\Middleware\Attribute\RequireModeratorParticipant;
+use OCA\Talk\Middleware\Attribute\RequirePermission;
+use OCA\Talk\Middleware\Attribute\RequireReadWriteConversation;
 use OCA\Talk\Middleware\Attribute\RequireRoom;
 use OCA\Talk\Recording\RecordingFailedRequest;
 use OCA\Talk\Recording\RecordingRequest;
 use OCA\Talk\Recording\RecordingStartedRequest;
 use OCA\Talk\Recording\RecordingStoppedRequest;
+use OCA\Talk\ResponseDefinitions;
 use OCA\Talk\Room;
 use OCA\Talk\Service\CertificateService;
 use OCA\Talk\Service\ChecksumVerificationService;
 use OCA\Talk\Service\ParticipantService;
+use OCA\Talk\Service\RecordingArtifactService;
 use OCA\Talk\Service\RecordingService;
 use OCA\Talk\Service\RoomService;
 use OCA\Talk\Vendor\CuyZ\Valinor\Mapper\MappingError;
@@ -44,6 +50,10 @@ use OCP\Http\Client\IClientService;
 use OCP\IRequest;
 use Psr\Log\LoggerInterface;
 
+/**
+ * @psalm-import-type TalkRecordingArtifact from ResponseDefinitions
+ * @psalm-import-type TalkRecordingArtifactListItem from ResponseDefinitions
+ */
 class RecordingController extends AEnvironmentAwareOCSController {
 	public function __construct(
 		string $appName,
@@ -54,6 +64,7 @@ class RecordingController extends AEnvironmentAwareOCSController {
 		private readonly CertificateService $certificateService,
 		private readonly ParticipantService $participantService,
 		private readonly RecordingService $recordingService,
+		private readonly RecordingArtifactService $recordingArtifactService,
 		private readonly RoomService $roomService,
 		private readonly ITimeFactory $timeFactory,
 		private readonly ChecksumVerificationService $checksumVerificationService,
@@ -579,5 +590,136 @@ class RecordingController extends AEnvironmentAwareOCSController {
 			return new DataResponse(['error' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
 		}
 		return new DataResponse(null);
+	}
+
+	/**
+	 * List private recording transcript and summary drafts
+	 *
+	 * @return DataResponse<Http::STATUS_OK, list<TalkRecordingArtifactListItem>, array{}>
+	 *
+	 * 200: Draft artifacts returned
+	 */
+	#[NoAdminRequired]
+	#[RequireLoggedInParticipant]
+	#[ApiRoute(verb: 'GET', url: '/api/{apiVersion}/recording/{token}/artifacts', requirements: [
+		'apiVersion' => '(v1)',
+		'token' => '[a-z0-9]{4,30}',
+	])]
+	public function listArtifacts(): DataResponse {
+		return new DataResponse($this->recordingArtifactService->list($this->getRoom(), $this->participant));
+	}
+
+	/**
+	 * Get a private recording transcript or summary draft
+	 *
+	 * @param string $artifactId ID of the recording artifact
+	 * @return DataResponse<Http::STATUS_OK, TalkRecordingArtifact, array{}>|DataResponse<Http::STATUS_NOT_FOUND, array{error: string}, array{}>
+	 *
+	 * 200: Artifact returned
+	 * 404: Artifact not found
+	 */
+	#[NoAdminRequired]
+	#[RequireLoggedInParticipant]
+	#[ApiRoute(verb: 'GET', url: '/api/{apiVersion}/recording/{token}/artifact/{artifactId}', requirements: [
+		'apiVersion' => '(v1)',
+		'token' => '[a-z0-9]{4,30}',
+		'artifactId' => '\\d+',
+	])]
+	public function getArtifact(string $artifactId): DataResponse {
+		try {
+			return new DataResponse($this->recordingArtifactService->get($this->getRoom(), $this->participant, $artifactId));
+		} catch (RecordingArtifactException $e) {
+			return $this->artifactError($e);
+		}
+	}
+
+	/**
+	 * Save edits to a private recording transcript or summary draft
+	 *
+	 * @param string $artifactId ID of the recording artifact
+	 * @param string $content Updated Markdown content
+	 * @param string $etag Expected file ETag
+	 * @return DataResponse<Http::STATUS_OK, TalkRecordingArtifact, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT|Http::STATUS_REQUEST_ENTITY_TOO_LARGE|Http::STATUS_INTERNAL_SERVER_ERROR, array{error: string}, array{}>
+	 *
+	 * 200: Artifact updated
+	 * 400: Artifact content or storage is invalid
+	 * 404: Artifact not found
+	 * 409: Artifact changed or is being processed
+	 * 413: Artifact content is too large
+	 * 500: Artifact could not be stored
+	 */
+	#[NoAdminRequired]
+	#[RequireLoggedInParticipant]
+	#[ApiRoute(verb: 'PUT', url: '/api/{apiVersion}/recording/{token}/artifact/{artifactId}', requirements: [
+		'apiVersion' => '(v1)',
+		'token' => '[a-z0-9]{4,30}',
+		'artifactId' => '\\d+',
+	])]
+	public function updateArtifact(string $artifactId, string $content, string $etag): DataResponse {
+		try {
+			return new DataResponse($this->recordingArtifactService->update($this->getRoom(), $this->participant, $artifactId, $content, $etag));
+		} catch (RecordingArtifactException $e) {
+			return $this->artifactError($e);
+		}
+	}
+
+	/**
+	 * Publish a detached snapshot of a reviewed recording artifact to chat
+	 *
+	 * @param string $artifactId ID of the recording artifact
+	 * @param string $etag Expected file ETag
+	 * @param int $timestamp Timestamp of the notification to dismiss
+	 * @return DataResponse<Http::STATUS_OK, TalkRecordingArtifact, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT|Http::STATUS_INTERNAL_SERVER_ERROR|Http::STATUS_INSUFFICIENT_STORAGE, array{error: string}, array{}>
+	 *
+	 * 200: Artifact published
+	 * 400: Artifact could not be published
+	 * 404: Artifact not found
+	 * 409: Artifact changed or is being processed
+	 * 500: Artifact could not be published
+	 * 507: Artifact exceeds the owner's storage quota
+	 */
+	#[NoAdminRequired]
+	#[RequireLoggedInModeratorParticipant]
+	#[RequirePermission(permission: RequirePermission::CHAT)]
+	#[RequireReadWriteConversation]
+	#[ApiRoute(verb: 'POST', url: '/api/{apiVersion}/recording/{token}/artifact/{artifactId}/publish', requirements: [
+		'apiVersion' => '(v1)',
+		'token' => '[a-z0-9]{4,30}',
+		'artifactId' => '\\d+',
+	])]
+	public function publishArtifact(string $artifactId, string $etag, int $timestamp): DataResponse {
+		try {
+			$artifact = $this->recordingArtifactService->publish($this->getRoom(), $this->participant, $artifactId, $etag);
+			if ($timestamp > 0) {
+				try {
+					$this->recordingService->notificationDismiss(
+						$this->getRoom(),
+						$this->participant,
+						$timestamp,
+						$artifact['type'] === 'transcript' ? 'transcript_file_stored' : 'summary_file_stored',
+					);
+				} catch (\Throwable $e) {
+					$this->logger->warning('Recording artifact was published but its notification could not be dismissed', ['exception' => $e]);
+				}
+			}
+			return new DataResponse($artifact);
+		} catch (RecordingArtifactException $e) {
+			return $this->artifactError($e);
+		}
+	}
+
+	private function artifactError(RecordingArtifactException $e): DataResponse {
+		$status = match ($e->getReason()) {
+			RecordingArtifactException::NOT_FOUND => Http::STATUS_NOT_FOUND,
+			RecordingArtifactException::STALE_REVISION,
+			RecordingArtifactException::EDITING,
+			RecordingArtifactException::PUBLISHING,
+			RecordingArtifactException::PUBLISHED => Http::STATUS_CONFLICT,
+			RecordingArtifactException::CONTENT => Http::STATUS_BAD_REQUEST,
+			RecordingArtifactException::CONTENT_TOO_LARGE => Http::STATUS_REQUEST_ENTITY_TOO_LARGE,
+			RecordingArtifactException::QUOTA => Http::STATUS_INSUFFICIENT_STORAGE,
+			default => Http::STATUS_INTERNAL_SERVER_ERROR,
+		};
+		return new DataResponse(['error' => $e->getReason()], $status);
 	}
 }

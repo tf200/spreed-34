@@ -1224,6 +1224,58 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/ocs/v2.php/apps/spreed/api/{apiVersion}/recording/{token}/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List private recording transcript and summary drafts */
+        get: operations["recording-list-artifacts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ocs/v2.php/apps/spreed/api/{apiVersion}/recording/{token}/artifact/{artifactId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a private recording transcript or summary draft */
+        get: operations["recording-get-artifact"];
+        /** Save edits to a private recording transcript or summary draft */
+        put: operations["recording-update-artifact"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ocs/v2.php/apps/spreed/api/{apiVersion}/recording/{token}/artifact/{artifactId}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish a detached snapshot of a reviewed recording artifact to chat */
+        post: operations["recording-publish-artifact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ocs/v2.php/apps/spreed/api/{apiVersion}/room": {
         parameters: {
             query?: never;
@@ -2399,6 +2451,26 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/ocs/v2.php/apps/spreed/api/{apiVersion}/settings/recording/google": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Configure Google transcription and summarization
+         * @description This endpoint requires admin access
+         */
+        post: operations["settings-set-recording-google-settings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ocs/v2.php/apps/spreed/api/{apiVersion}/signaling/welcome/{serverId}": {
         parameters: {
             query?: never;
@@ -3450,6 +3522,30 @@ export type components = {
              * @description Timestamp in seconds and UTC time zone
              */
             timestamp: number;
+        };
+        RecordingArtifact: {
+            id: string;
+            /** @enum {string} */
+            type: "transcript" | "summary";
+            /** @enum {string} */
+            state: "draft" | "editing" | "publishing" | "published";
+            fileName: string;
+            content: string;
+            etag: string;
+            publishedFileId: string | null;
+            publishedMessageId: string | null;
+        };
+        RecordingArtifactListItem: {
+            id: string;
+            /** @enum {string} */
+            type: "transcript" | "summary";
+            /** @enum {string} */
+            state: "draft" | "editing" | "publishing";
+            fileName: string;
+            /** Format: int64 */
+            updatedAt: number;
+            /** Format: int64 */
+            notificationTimestamp: number;
         };
         RichObjectParameter: {
             /** @description Object type (see [Rich Object String](https://github.com/nextcloud/server/issues/1706)) */
@@ -10268,6 +10364,389 @@ export interface operations {
             };
         };
     };
+    "recording-list-artifacts": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required to be true for the API request to pass */
+                "OCS-APIRequest": boolean;
+            };
+            path: {
+                apiVersion: "v1";
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Draft artifacts returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: components["schemas"]["RecordingArtifactListItem"][];
+                        };
+                    };
+                };
+            };
+            /** @description Current user is not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "recording-get-artifact": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required to be true for the API request to pass */
+                "OCS-APIRequest": boolean;
+            };
+            path: {
+                apiVersion: "v1";
+                token: string;
+                /** @description ID of the recording artifact */
+                artifactId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Artifact returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: components["schemas"]["RecordingArtifact"];
+                        };
+                    };
+                };
+            };
+            /** @description Current user is not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description Artifact not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "recording-update-artifact": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required to be true for the API request to pass */
+                "OCS-APIRequest": boolean;
+            };
+            path: {
+                apiVersion: "v1";
+                token: string;
+                /** @description ID of the recording artifact */
+                artifactId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Updated Markdown content */
+                    content: string;
+                    /** @description Expected file ETag */
+                    etag: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Artifact updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: components["schemas"]["RecordingArtifact"];
+                        };
+                    };
+                };
+            };
+            /** @description Artifact content or storage is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Current user is not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description Artifact not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Artifact changed or is being processed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Artifact content is too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Artifact could not be stored */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "recording-publish-artifact": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required to be true for the API request to pass */
+                "OCS-APIRequest": boolean;
+            };
+            path: {
+                apiVersion: "v1";
+                token: string;
+                /** @description ID of the recording artifact */
+                artifactId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Expected file ETag */
+                    etag: string;
+                    /**
+                     * Format: int64
+                     * @description Timestamp of the notification to dismiss
+                     */
+                    timestamp: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Artifact published */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: components["schemas"]["RecordingArtifact"];
+                        };
+                    };
+                };
+            };
+            /** @description Artifact could not be published */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Current user is not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description Artifact not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Artifact changed or is being processed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Artifact could not be published */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Artifact exceeds the owner's storage quota */
+            507: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    };
     "room-get-rooms": {
         parameters: {
             query?: {
@@ -15737,6 +16216,109 @@ export interface operations {
         responses: {
             /** @description Successfully set new SIP settings */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description Current user is not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description Logged in account must be an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "settings-set-recording-google-settings": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required to be true for the API request to pass */
+                "OCS-APIRequest": boolean;
+            };
+            path: {
+                apiVersion: "v1";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Whether Google AI processing is enabled */
+                    enabled: boolean;
+                    /** @description Google Cloud project ID */
+                    project: string;
+                    /** @description Google Speech region */
+                    location: string;
+                    /** @description Google Cloud Storage bucket */
+                    bucket: string;
+                    /** @description Speech recognition language */
+                    language: string;
+                    /** @description Google Speech model */
+                    speechModel: string;
+                    /** @description Gemini region */
+                    geminiLocation: string;
+                    /** @description Gemini model */
+                    geminiModel: string;
+                    /**
+                     * @description Service account JSON credential
+                     * @default
+                     */
+                    serviceAccountJson?: string;
+                    /**
+                     * @description Whether to remove the stored credential
+                     * @default false
+                     */
+                    removeServiceAccount?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Settings updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description Settings are invalid */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -15,12 +15,15 @@ use OCP\BackgroundJob\QueuedJob;
 use Override;
 
 class SubmitRecordingAi extends QueuedJob {
-	public function __construct(ITimeFactory $time, private readonly RecordingAiProcessor $processor) {
+	public function __construct(
+		ITimeFactory $time,
+		private readonly RecordingAiProcessor $processor,
+	) {
 		parent::__construct($time);
 	}
 
 	#[Override]
 	protected function run($argument): void {
-		$this->processor->submit((int)($argument['operationId'] ?? 0));
+		$this->processor->process((int)($argument['operationId'] ?? 0));
 	}
 }

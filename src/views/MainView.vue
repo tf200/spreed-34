@@ -7,7 +7,7 @@ import type { WatchStopHandle } from 'vue'
 import type { Conversation } from '../types/index.ts'
 
 import { emit } from '@nextcloud/event-bus'
-import { computed, onMounted, onUnmounted, watch, watchEffect } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStore } from 'vuex'
 import CallFailedDialog from '../components/CallView/CallFailedDialog.vue'
@@ -16,11 +16,12 @@ import ChatView from '../components/ChatView.vue'
 import ExternalCallView from '../components/ExternalCallView.vue'
 import LobbyScreen from '../components/LobbyScreen.vue'
 import PollViewer from '../components/PollViewer/PollViewer.vue'
+import RecordingArtifactReviewDialog from '../components/RecordingArtifactReviewDialog.vue'
 import TopBar from '../components/TopBar/TopBar.vue'
 import { useIsInCall } from '../composables/useIsInCall.js'
 import { useJoinCall } from '../composables/useJoinCall.ts'
 import { watchJoinedConversation } from '../composables/useJoinedConversation.ts'
-import { CALL, CONVERSATION } from '../constants.ts'
+import { CALL, CONVERSATION, PARTICIPANT } from '../constants.ts'
 import { getTalkConfig } from '../services/CapabilitiesManager.ts'
 import { useActorStore } from '../stores/actor.ts'
 import { useSettingsStore } from '../stores/settings.ts'
@@ -36,6 +37,12 @@ const router = useRouter()
 const route = useRoute()
 const actorStore = useActorStore()
 const settingsStore = useSettingsStore()
+let reviewRequest = 0
+const reviewDialog = ref<{
+	token: string
+	artifactId: string
+	notificationTimestamp: number
+} | null>(null)
 
 /** Internal handlers for 'joined-conversation' watcher (direct-call) */
 let unwatchJoinedConversation: WatchStopHandle | undefined
@@ -52,6 +59,12 @@ function stopWatchingJoinedConversation() {
 const isInLobby = computed(() => store.getters.isInLobby)
 const connectionFailed = computed(() => store.getters.connectionFailed(props.token))
 const isVoiceRoom = computed(() => Boolean(store.getters.conversation(props.token)?.attributes & CONVERSATION.ATTRIBUTE.VOICE_ROOM))
+const canPublishRecordingArtifact = computed(() => {
+	const conversation = store.getters.conversation(props.token) as Conversation | undefined
+	return store.getters.isModerator
+		&& conversation?.readOnly === CONVERSATION.STATE.READ_WRITE
+		&& (conversation.permissions & PARTICIPANT.PERMISSIONS.CHAT) !== 0
+})
 const isInExternalCall = computed(() => {
 	const conversation = store.getters.conversation(props.token) as Conversation | undefined
 	return conversation?.objectType === CONVERSATION.OBJECT_TYPE.EXTERNAL_CALL && isInCall.value
@@ -79,6 +92,65 @@ watch(isInLobby, (isInLobby) => {
 	}
 })
 
+watch([
+	() => route.query.reviewArtifact,
+	() => route.query.notificationTimestamp,
+	() => props.token,
+], processReviewQuery, { immediate: true })
+
+/** Open or clean up the recording review identified by the current route. */
+async function processReviewQuery() {
+	const reviewArtifact = route.query.reviewArtifact
+	const notificationTimestamp = route.query.notificationTimestamp
+	const token = props.token
+	const request = ++reviewRequest
+	const isArtifactIdValid = typeof reviewArtifact === 'string'
+		&& /^[1-9]\d*$/.test(reviewArtifact)
+	const isTimestampValid = typeof notificationTimestamp === 'string'
+		&& /^\d+$/.test(notificationTimestamp)
+		&& Number.isSafeInteger(Number(notificationTimestamp))
+	if (!isArtifactIdValid || !isTimestampValid) {
+		reviewDialog.value = null
+		if (reviewArtifact !== undefined || notificationTimestamp !== undefined) {
+			await removeReviewQuery(request)
+		}
+		return
+	}
+	reviewDialog.value = {
+		token,
+		artifactId: reviewArtifact,
+		notificationTimestamp: Number(notificationTimestamp),
+	}
+}
+
+/** Close the route-owned review dialog without clearing a newer route. */
+async function closeReviewDialog() {
+	const dialog = reviewDialog.value
+	reviewDialog.value = null
+	if (dialog !== null) {
+		await removeReviewQuery(reviewRequest, dialog.artifactId, dialog.token)
+	}
+}
+
+/**
+ * Remove only the review query that belongs to this dialog invocation.
+ *
+ * @param request Dialog request generation
+ * @param artifactId Artifact ID opened by the dialog
+ * @param token Conversation token opened by the dialog
+ */
+async function removeReviewQuery(request: number, artifactId?: string, token?: string) {
+	if (request !== reviewRequest
+		|| (artifactId !== undefined && route.query.reviewArtifact !== artifactId)
+		|| (token !== undefined && props.token !== token)) {
+		return
+	}
+	const query = { ...route.query }
+	delete query.reviewArtifact
+	delete query.notificationTimestamp
+	await router.replace({ query })
+}
+
 onMounted(() => {
 	watchEffect(() => {
 		if (route.hash === '#direct-call') {
@@ -92,6 +164,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+	reviewRequest++
+	reviewDialog.value = null
 	stopWatchingJoinedConversation()
 })
 
@@ -147,6 +221,14 @@ function handleDirectCall(routeToken: string) {
 			<ChatView v-else />
 			<PollViewer />
 			<CallFailedDialog v-if="connectionFailed" :token="token" />
+			<RecordingArtifactReviewDialog
+				v-if="reviewDialog"
+				:key="`${reviewDialog.token}-${reviewDialog.artifactId}`"
+				:token="reviewDialog.token"
+				:artifactId="reviewDialog.artifactId"
+				:notificationTimestamp="reviewDialog.notificationTimestamp"
+				:canPublish="canPublishRecordingArtifact"
+				@close="closeReviewDialog" />
 		</template>
 	</div>
 </template>

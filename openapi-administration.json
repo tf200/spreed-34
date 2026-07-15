@@ -2068,6 +2068,230 @@
                 }
             }
         },
+        "/ocs/v2.php/apps/spreed/api/{apiVersion}/settings/recording/google": {
+            "post": {
+                "operationId": "settings-set-recording-google-settings",
+                "summary": "Configure Google transcription and summarization",
+                "description": "This endpoint requires admin access",
+                "tags": [
+                    "settings"
+                ],
+                "security": [
+                    {
+                        "bearer_auth": []
+                    },
+                    {
+                        "basic_auth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": [
+                                    "enabled",
+                                    "project",
+                                    "location",
+                                    "bucket",
+                                    "language",
+                                    "speechModel",
+                                    "geminiLocation",
+                                    "geminiModel"
+                                ],
+                                "properties": {
+                                    "enabled": {
+                                        "type": "boolean",
+                                        "description": "Whether Google AI processing is enabled"
+                                    },
+                                    "project": {
+                                        "type": "string",
+                                        "description": "Google Cloud project ID"
+                                    },
+                                    "location": {
+                                        "type": "string",
+                                        "description": "Google Speech region"
+                                    },
+                                    "bucket": {
+                                        "type": "string",
+                                        "description": "Google Cloud Storage bucket"
+                                    },
+                                    "language": {
+                                        "type": "string",
+                                        "description": "Speech recognition language"
+                                    },
+                                    "speechModel": {
+                                        "type": "string",
+                                        "description": "Google Speech model"
+                                    },
+                                    "geminiLocation": {
+                                        "type": "string",
+                                        "description": "Gemini region"
+                                    },
+                                    "geminiModel": {
+                                        "type": "string",
+                                        "description": "Gemini model"
+                                    },
+                                    "serviceAccountJson": {
+                                        "type": "string",
+                                        "default": "",
+                                        "description": "Service account JSON credential"
+                                    },
+                                    "removeServiceAccount": {
+                                        "type": "boolean",
+                                        "default": false,
+                                        "description": "Whether to remove the stored credential"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "name": "apiVersion",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "v1"
+                            ],
+                            "default": "v1"
+                        }
+                    },
+                    {
+                        "name": "OCS-APIRequest",
+                        "in": "header",
+                        "description": "Required to be true for the API request to pass",
+                        "required": true,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Settings updated",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "nullable": true
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Settings are invalid",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "nullable": true
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Current user is not logged in",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Logged in account must be an admin",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/ocs/v2.php/apps/spreed/api/{apiVersion}/signaling/welcome/{serverId}": {
             "get": {
                 "operationId": "signaling-get-welcome-message",

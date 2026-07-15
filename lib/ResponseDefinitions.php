@@ -25,6 +25,26 @@ namespace OCA\Talk;
  *     type: 'custom'|'favorites'|'other',
  * }
  *
+ * @psalm-type TalkRecordingArtifact = array{
+ *     id: numeric-string,
+ *     type: 'transcript'|'summary',
+ *     state: 'draft'|'editing'|'publishing'|'published',
+ *     fileName: string,
+ *     content: string,
+ *     etag: string,
+ *     publishedFileId: numeric-string|null,
+ *     publishedMessageId: numeric-string|null,
+ * }
+ *
+ * @psalm-type TalkRecordingArtifactListItem = array{
+ *     id: numeric-string,
+ *     type: 'transcript'|'summary',
+ *     state: 'draft'|'editing'|'publishing',
+ *     fileName: string,
+ *     updatedAt: int,
+ *     notificationTimestamp: int,
+ * }
+ *
  * @psalm-type TalkBan = array{
  *     // Identifier of the ban
  *     id: int,

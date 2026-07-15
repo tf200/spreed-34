@@ -96,6 +96,7 @@ class RecordingService {
 		private readonly IEventDispatcher $eventDispatcher,
 		private readonly ISecureRandom $secureRandom,
 		private readonly RecordingAiService $recordingAiService,
+		private readonly RecordingArtifactService $recordingArtifactService,
 	) {
 	}
 
@@ -542,12 +543,56 @@ class RecordingService {
 			}
 
 			try {
-				$fileNode = $recordingFolder->newFile(
-					$transcriptFileName,
-					$output . "\n\n$warning\n",
-				);
-				$this->systemTagMapper->assignGeneratedByAITag((string)$fileNode->getId(), 'files');
-				$this->notifyStoredTranscript($room, $participant, $fileNode, $aiTask);
+				$artifact = $this->recordingArtifactService->findExisting($recordingFileId, $aiTask);
+				if ($artifact === null) {
+					$tempName = '.recording-artifact-source-' . $this->secureRandom->generate(16) . '.md';
+					$fileNode = $recordingFolder->newFile(
+						$tempName,
+						$output . "\n\n$warning\n",
+					);
+					$artifact = $this->recordingArtifactService->create(
+						$recordingFileId,
+						$fileNode,
+						$owner,
+						$roomToken,
+						$aiTask,
+					);
+					if ($artifact->getSourceFileId() === $fileNode->getId()) {
+						$finalName = $this->findAvailableFileName($recordingFolder, $transcriptFileName);
+						$movedNode = $fileNode->move($recordingFolder->getPath() . '/' . $finalName);
+						if (!$movedNode instanceof File) {
+							throw new \RuntimeException('Recording artifact source is not a file');
+						}
+						$fileNode = $movedNode;
+						$this->systemTagMapper->assignGeneratedByAITag((string)$fileNode->getId(), 'files');
+						try {
+							$this->notifyStoredTranscript(
+								$room,
+								$participant,
+								$fileNode,
+								$aiTask,
+								(string)$artifact->getId(),
+								$artifact->getNotificationTimestamp(),
+							);
+						} catch (\Throwable $e) {
+							// The private draft remains available from the conversation sidebar.
+							$this->logger->error('Could not notify about recording artifact', ['exception' => $e]);
+						}
+					}
+				} else {
+					$sourceNodes = $recordingFolder->getById($artifact->getSourceFileId());
+					$fileNode = array_pop($sourceNodes);
+					if ($fileNode instanceof File) {
+						if (str_starts_with($fileNode->getName(), '.recording-artifact-source-')) {
+							$finalName = $this->findAvailableFileName($recordingFolder, $transcriptFileName);
+							$movedNode = $fileNode->move($recordingFolder->getPath() . '/' . $finalName);
+							if ($movedNode instanceof File) {
+								$fileNode = $movedNode;
+							}
+						}
+						$this->systemTagMapper->assignGeneratedByAITag((string)$fileNode->getId(), 'files');
+					}
+				}
 			} catch (NoUserException) {
 				throw new InvalidArgumentException('owner_invalid');
 			} catch (NotPermittedException) {
@@ -777,20 +822,36 @@ class RecordingService {
 	/**
 	 * @param 'transcript'|'summary' $aiType
 	 */
-	public function notifyStoredTranscript(Room $room, Participant $participant, File $file, string $aiType): void {
+	public function notifyStoredTranscript(Room $room, Participant $participant, File $file, string $aiType, string $artifactId, int $notificationTimestamp): void {
 		$attendee = $participant->getAttendee();
 
 		$notification = $this->notificationManager->createNotification();
 
 		$notification
 			->setApp('spreed')
-			->setDateTime($this->timeFactory->getDateTime())
+			->setDateTime((new \DateTime())->setTimestamp($notificationTimestamp))
 			->setObject('recording', $room->getToken())
 			->setUser($attendee->getActorId())
 			->setSubject($aiType === 'transcript' ? 'transcript_file_stored' : 'summary_file_stored', [
 				'objectId' => $file->getId(),
+				'artifactId' => $artifactId,
 			]);
 		$this->notificationManager->notify($notification);
+	}
+
+	private function findAvailableFileName(Folder $folder, string $fileName): string {
+		if (!$folder->nodeExists($fileName)) {
+			return $fileName;
+		}
+		$extension = pathinfo($fileName, PATHINFO_EXTENSION);
+		$base = $extension === '' ? $fileName : substr($fileName, 0, -(strlen($extension) + 1));
+		for ($i = 1; $i < 1000; $i++) {
+			$candidate = $extension === '' ? "$base ($i)" : "$base ($i).$extension";
+			if (!$folder->nodeExists($candidate)) {
+				return $candidate;
+			}
+		}
+		throw new \RuntimeException('Could not find an available recording artifact file name');
 	}
 
 	public function notificationDismiss(Room $room, Participant $participant, int $timestamp, ?string $notificationSubject): void {

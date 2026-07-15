@@ -66,6 +66,17 @@ class AttachmentMapper extends QBMapper {
 		$query->executeStatement();
 	}
 
+	public function existsByMessageId(int $messageId): bool {
+		$query = $this->db->getQueryBuilder();
+		$query->select('id')->from($this->getTableName())
+			->where($query->expr()->eq('message_id', $query->createNamedParameter($messageId, IQueryBuilder::PARAM_INT)))
+			->setMaxResults(1);
+		$result = $query->executeQuery();
+		$exists = $result->fetchOne() !== false;
+		$result->closeCursor();
+		return $exists;
+	}
+
 	public function deleteByRoomId(int $roomId): void {
 		$query = $this->db->getQueryBuilder();
 		$query->delete($this->getTableName())

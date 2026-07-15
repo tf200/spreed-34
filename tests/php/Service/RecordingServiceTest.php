@@ -27,6 +27,7 @@ use OCA\Talk\Recording\BackendNotifier;
 use OCA\Talk\Recording\RecordingAiService;
 use OCA\Talk\Room;
 use OCA\Talk\Service\ParticipantService;
+use OCA\Talk\Service\RecordingArtifactService;
 use OCA\Talk\Service\RecordingService;
 use OCA\Talk\Service\RoomService;
 use OCP\AppFramework\Services\IAppConfig;
@@ -76,6 +77,7 @@ class RecordingServiceTest extends TestCase {
 	protected ISecureRandom&MockObject $secureRandom;
 	protected RecordingService $recordingService;
 	protected RecordingAiService&MockObject $recordingAiService;
+	protected RecordingArtifactService&MockObject $recordingArtifactService;
 
 	public function setUp(): void {
 		parent::setUp();
@@ -101,6 +103,7 @@ class RecordingServiceTest extends TestCase {
 		$this->eventDispatcher = $this->createMock(IEventDispatcher::class);
 		$this->secureRandom = $this->createMock(ISecureRandom::class);
 		$this->recordingAiService = $this->createMock(RecordingAiService::class);
+		$this->recordingArtifactService = $this->createMock(RecordingArtifactService::class);
 
 		$this->recordingService = new RecordingService(
 			$this->mimeTypeDetector,
@@ -124,6 +127,7 @@ class RecordingServiceTest extends TestCase {
 			$this->eventDispatcher,
 			$this->secureRandom,
 			$this->recordingAiService,
+			$this->recordingArtifactService,
 		);
 	}
 
