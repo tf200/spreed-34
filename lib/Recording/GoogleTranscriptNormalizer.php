@@ -13,6 +13,8 @@ class GoogleTranscriptNormalizer {
 	private const SPEAKING_ONSET_PADDING = 0.25;
 	private const SPEAKING_RELEASE_PADDING = 0.5;
 	private const MAX_MERGE_GAP = 1.5;
+	private const MAX_ONE_SIDED_ATTRIBUTION_GAP = 3.0;
+	private const MAX_BRIDGED_ATTRIBUTION_GAP = 8.0;
 
 	/**
 	 * @param array<string, mixed> $response
@@ -21,9 +23,11 @@ class GoogleTranscriptNormalizer {
 	public function toMarkdown(array $response, ?array $timeline): string {
 		$words = $this->getWords($response);
 		$intervals = $this->getSpeakerIntervals($timeline);
+		$matches = array_map(fn (array $word): ?array => $this->matchSpeaker($word, $intervals), $words);
+		$matches = $this->propagateSpeakerMatches($words, $matches);
 		$segments = [];
-		foreach ($words as $word) {
-			$match = $this->matchSpeaker($word, $intervals);
+		foreach ($words as $index => $word) {
+			$match = $matches[$index];
 			$identity = $match['identity'] ?? 'diarized:' . $word['speaker'];
 			$name = $match['name'] ?? 'Speaker ' . $word['speaker'];
 			$last = array_key_last($segments);
@@ -118,13 +122,66 @@ class GoogleTranscriptNormalizer {
 
 	/** @param array<string, mixed> $event */
 	private function getIdentity(array $event, string $peerId): string {
-		if (is_string($event['sessionId'] ?? null) && $event['sessionId'] !== '') {
-			return 'session:' . $event['sessionId'];
-		}
 		if (is_string($event['actorType'] ?? null) && is_string($event['actorId'] ?? null) && $event['actorId'] !== '') {
 			return 'actor:' . $event['actorType'] . ':' . $event['actorId'];
 		}
+		if (is_string($event['sessionId'] ?? null) && $event['sessionId'] !== '') {
+			return 'session:' . $event['sessionId'];
+		}
 		return 'peer:' . $peerId;
+	}
+
+	/**
+	 * Fill short timeline gaps from nearby direct matches without globally binding a
+	 * diarization label, as providers can reuse the same label for another speaker.
+	 *
+	 * @param list<array{start: float, end: float, speaker: string, text: string}> $words
+	 * @param list<array{identity: string, name: string}|null> $matches
+	 * @return list<array{identity: string, name: string}|null>
+	 */
+	private function propagateSpeakerMatches(array $words, array $matches): array {
+		$resolved = $matches;
+		foreach ($words as $index => $word) {
+			if ($matches[$index] !== null) {
+				continue;
+			}
+
+			$previous = $this->findDirectMatch($words, $matches, $index, -1);
+			$next = $this->findDirectMatch($words, $matches, $index, 1);
+			$previousMatchesLabel = $previous !== null && $words[$previous]['speaker'] === $word['speaker'];
+			$nextMatchesLabel = $next !== null && $words[$next]['speaker'] === $word['speaker'];
+
+			if ($previousMatchesLabel && $nextMatchesLabel) {
+				$previousMatch = $matches[$previous];
+				$nextMatch = $matches[$next];
+				if ($previousMatch['identity'] === $nextMatch['identity']
+					&& $words[$next]['start'] - $words[$previous]['end'] <= self::MAX_BRIDGED_ATTRIBUTION_GAP) {
+					$resolved[$index] = $previousMatch;
+				}
+				continue;
+			}
+
+			if ($previousMatchesLabel && $word['start'] - $words[$previous]['end'] <= self::MAX_ONE_SIDED_ATTRIBUTION_GAP) {
+				$resolved[$index] = $matches[$previous];
+			} elseif ($nextMatchesLabel && $words[$next]['start'] - $word['end'] <= self::MAX_ONE_SIDED_ATTRIBUTION_GAP) {
+				$resolved[$index] = $matches[$next];
+			}
+		}
+
+		return $resolved;
+	}
+
+	/**
+	 * @param list<array{start: float, end: float, speaker: string, text: string}> $words
+	 * @param list<array{identity: string, name: string}|null> $matches
+	 */
+	private function findDirectMatch(array $words, array $matches, int $index, int $direction): ?int {
+		for ($candidate = $index + $direction; isset($words[$candidate]); $candidate += $direction) {
+			if ($matches[$candidate] !== null) {
+				return $candidate;
+			}
+		}
+		return null;
 	}
 
 	/**

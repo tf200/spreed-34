@@ -88,4 +88,51 @@ class GoogleTranscriptNormalizerTest extends TestCase {
 
 		$this->assertSame("**Speaker 4** · 00:01\nHello", (new GoogleTranscriptNormalizer())->toMarkdown($response, $timeline));
 	}
+
+	public function testBridgesBriefTimelineGapForSameDiarizedSpeaker(): void {
+		$response = ['results' => [['results' => [['alternatives' => [['words' => [
+			['word' => 'This', 'startOffset' => '1s', 'endOffset' => '1.4s', 'speakerLabel' => '1'],
+			['word' => 'still', 'startOffset' => '2.1s', 'endOffset' => '2.4s', 'speakerLabel' => '1'],
+			['word' => 'Alice', 'startOffset' => '3.1s', 'endOffset' => '3.5s', 'speakerLabel' => '1'],
+		]]]]]]]];
+		$timeline = ['version' => 1, 'events' => [
+			['time' => 0.8, 'speaking' => true, 'peerId' => 'a', 'actorType' => 'users', 'actorId' => 'alice', 'displayName' => 'Alice'],
+			['time' => 1.4, 'speaking' => false, 'peerId' => 'a'],
+			['time' => 3.0, 'speaking' => true, 'peerId' => 'a', 'actorType' => 'users', 'actorId' => 'alice', 'displayName' => 'Alice'],
+			['time' => 3.7, 'speaking' => false, 'peerId' => 'a'],
+		]];
+
+		$this->assertSame("**Alice** · 00:01\nThis still Alice", (new GoogleTranscriptNormalizer())->toMarkdown($response, $timeline));
+	}
+
+	public function testKeepsGapAnonymousWhenNearbyMatchesConflict(): void {
+		$response = ['results' => [['results' => [['alternatives' => [['words' => [
+			['word' => 'Alice', 'startOffset' => '1s', 'endOffset' => '1.4s', 'speakerLabel' => '1'],
+			['word' => 'unknown', 'startOffset' => '2.1s', 'endOffset' => '2.4s', 'speakerLabel' => '1'],
+			['word' => 'Bob', 'startOffset' => '3.1s', 'endOffset' => '3.5s', 'speakerLabel' => '1'],
+		]]]]]]]];
+		$timeline = ['version' => 1, 'events' => [
+			['time' => 0.8, 'speaking' => true, 'peerId' => 'a', 'displayName' => 'Alice'],
+			['time' => 1.4, 'speaking' => false, 'peerId' => 'a'],
+			['time' => 3.0, 'speaking' => true, 'peerId' => 'b', 'displayName' => 'Bob'],
+			['time' => 3.7, 'speaking' => false, 'peerId' => 'b'],
+		]];
+
+		$this->assertSame("**Alice** · 00:01\nAlice\n\n**Speaker 1** · 00:02\nunknown\n\n**Bob** · 00:03\nBob", (new GoogleTranscriptNormalizer())->toMarkdown($response, $timeline));
+	}
+
+	public function testUsesActorIdentityAcrossSessions(): void {
+		$response = ['results' => [['results' => [['alternatives' => [['words' => [
+			['word' => 'Hello', 'startOffset' => '1s', 'endOffset' => '1.4s', 'speakerLabel' => '1'],
+			['word' => 'again', 'startOffset' => '2s', 'endOffset' => '2.4s', 'speakerLabel' => '1'],
+		]]]]]]]];
+		$timeline = ['version' => 1, 'events' => [
+			['time' => 0.8, 'speaking' => true, 'peerId' => 'a', 'sessionId' => 'first', 'actorType' => 'users', 'actorId' => 'alice', 'displayName' => 'Alice'],
+			['time' => 1.4, 'speaking' => false, 'peerId' => 'a'],
+			['time' => 1.8, 'speaking' => true, 'peerId' => 'b', 'sessionId' => 'second', 'actorType' => 'users', 'actorId' => 'alice', 'displayName' => 'Alice'],
+			['time' => 2.5, 'speaking' => false, 'peerId' => 'b'],
+		]];
+
+		$this->assertSame("**Alice** · 00:01\nHello again", (new GoogleTranscriptNormalizer())->toMarkdown($response, $timeline));
+	}
 }
