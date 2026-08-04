@@ -37,6 +37,18 @@ declare global {
 		}
 
 		OCA: {
+			Text?: {
+				createEditor: (options: {
+					el: HTMLElement
+					content: string
+					readOnly?: boolean
+					placeholder?: string
+					onUpdate?: (value: { markdown: string }) => void
+				}) => Promise<{
+					destroy: () => void
+					setContent: (content: string) => void
+				}>
+			}
 			Talk: {
 				/** Vue app instance and optional destroyer */
 				instance?: ReturnType<createApp>

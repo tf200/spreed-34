@@ -10,11 +10,10 @@ import { showError, showSuccess } from '@nextcloud/dialogs'
 import { t } from '@nextcloud/l10n'
 import { spawnDialog } from '@nextcloud/vue/functions/dialog'
 import { isAxiosError } from 'axios'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcDialog from '@nextcloud/vue/components/NcDialog'
 import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon'
-import NcRichText from '@nextcloud/vue/components/NcRichText'
 import NcTextArea from '@nextcloud/vue/components/NcTextArea'
 import ConfirmDialog from './UIShared/ConfirmDialog.vue'
 import {
@@ -46,8 +45,10 @@ const hasConflict = ref(false)
 const loadError = ref(false)
 const operationError = ref<'save' | 'publish' | null>(null)
 const conflictReason = ref<'stale_revision' | 'editing' | 'publishing' | 'published' | null>(null)
-const previewContent = ref('')
-let previewTimer: ReturnType<typeof setTimeout> | undefined
+const editorElement = ref<HTMLElement | null>(null)
+const textEditorAvailable = ref(!!window.OCA.Text?.createEditor)
+let textEditor: Awaited<ReturnType<NonNullable<typeof window.OCA.Text>['createEditor']>> | null = null
+let editorReadOnly = false
 let loadRequest = 0
 
 const isBusy = computed(() => isLoading.value || isSaving.value || isPublishing.value)
@@ -59,12 +60,9 @@ const title = computed(() => artifact.value?.type === 'summary'
 	: t('spreed', 'Review transcript'))
 
 onMounted(loadArtifact)
-onBeforeUnmount(() => clearTimeout(previewTimer))
-watch(content, (value) => {
-	clearTimeout(previewTimer)
-	previewTimer = setTimeout(() => {
-		previewContent.value = value
-	}, 200)
+onBeforeUnmount(() => {
+	textEditor?.destroy()
+	textEditor = null
 })
 
 /** Load the latest artifact draft. */
@@ -80,10 +78,11 @@ async function loadArtifact() {
 		artifact.value = response.data.ocs.data
 		content.value = response.data.ocs.data.content
 		savedContent.value = response.data.ocs.data.content
-		previewContent.value = response.data.ocs.data.content
 		hasConflict.value = false
 		conflictReason.value = null
 		operationError.value = null
+		await nextTick()
+		await setupTextEditor()
 	} catch (error) {
 		if (request !== loadRequest) {
 			return
@@ -94,6 +93,35 @@ async function loadArtifact() {
 		if (request === loadRequest) {
 			isLoading.value = false
 		}
+	}
+}
+
+/** Create the native Nextcloud Text editor, or refresh it after a reload. */
+async function setupTextEditor() {
+	if (!textEditorAvailable.value || !editorElement.value || !artifact.value) {
+		return
+	}
+	const readOnly = !isDraft.value
+	if (textEditor && editorReadOnly === readOnly) {
+		textEditor.setContent(content.value)
+		return
+	}
+	textEditor?.destroy()
+	textEditor = null
+	try {
+		textEditor = await window.OCA.Text!.createEditor({
+			el: editorElement.value,
+			content: content.value,
+			readOnly,
+			placeholder: t('spreed', 'Review and correct the recording text'),
+			onUpdate: ({ markdown }) => {
+				content.value = markdown
+			},
+		})
+		editorReadOnly = readOnly
+	} catch (error) {
+		console.error('Could not initialize the Nextcloud Text editor', error)
+		textEditorAvailable.value = false
 	}
 }
 
@@ -152,7 +180,8 @@ async function publish() {
 		artifact.value = response.data.ocs.data
 		content.value = response.data.ocs.data.content
 		savedContent.value = response.data.ocs.data.content
-		previewContent.value = response.data.ocs.data.content
+		await nextTick()
+		await setupTextEditor()
 		showSuccess(t('spreed', 'Reviewed text published to the conversation'))
 	} catch (error: unknown) {
 		if (setConflict(error)) {
@@ -286,18 +315,15 @@ async function close(open = false) {
 					{{ t('spreed', 'Retry') }}
 				</NcButton>
 			</div>
-			<div class="recording-artifact-review__panes">
+			<div class="recording-artifact-review__editor" dir="auto">
+				<div v-if="textEditorAvailable" ref="editorElement" class="recording-artifact-review__text-editor" />
 				<NcTextArea
+					v-else
 					v-model="content"
-					class="recording-artifact-review__editor"
-					:label="t('spreed', 'Markdown text')"
+					:label="t('spreed', 'Recording text')"
 					:disabled="isBusy || !isDraft"
 					labelVisible
 					resize="vertical" />
-				<section class="recording-artifact-review__preview" dir="auto">
-					<h3>{{ t('spreed', 'Preview') }}</h3>
-					<NcRichText :text="previewContent" :useExtendedMarkdown="true" autolink />
-				</section>
 			</div>
 		</div>
 		<template v-if="artifact && isDraft" #actions>
@@ -352,33 +378,29 @@ async function close(open = false) {
 		gap: 12px;
 	}
 
-	&__panes {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-		gap: 16px;
+	&__editor {
+		min-height: min(58vh, 620px);
+		padding: 8px;
+		overflow: auto;
+		border: 1px solid var(--color-border);
+		border-radius: var(--border-radius-large);
+		background: var(--color-main-background);
 	}
 
 	&__editor :deep(textarea) {
 		min-height: min(55vh, 560px);
-		font-family: var(--font-face-monospace);
 	}
 
-	&__preview {
-		min-height: min(55vh, 560px);
-		padding: 12px 16px;
-		overflow: auto;
-		border: 1px solid var(--color-border);
-		border-radius: var(--border-radius-large);
+	&__text-editor :deep(.editor__content) {
+		min-height: min(54vh, 580px);
+		max-width: 100%;
 	}
 }
 
 @media (max-width: 700px) {
-	.recording-artifact-review__panes {
-		grid-template-columns: 1fr;
-	}
-
+	.recording-artifact-review__editor,
 	.recording-artifact-review__editor :deep(textarea),
-	.recording-artifact-review__preview {
+	.recording-artifact-review__text-editor :deep(.editor__content) {
 		min-height: 36vh;
 	}
 }

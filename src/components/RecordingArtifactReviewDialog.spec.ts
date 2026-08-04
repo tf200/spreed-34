@@ -45,7 +45,6 @@ const stubs = {
 		template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
 	},
 	NcLoadingIcon: { template: '<span class="loading" />' },
-	NcRichText: { props: ['text'], template: '<div class="rich-text">{{ text }}</div>' },
 	NcTextArea: {
 		props: ['modelValue', 'disabled'],
 		template: '<textarea :value="modelValue" :disabled="disabled" @input="$emit(\'update:modelValue\', $event.target.value)" />',
@@ -83,7 +82,7 @@ describe('RecordingArtifactReviewDialog', () => {
 
 		expect(getRecordingArtifact).toHaveBeenCalledWith('room-token', 'artifact-1')
 		expect(wrapper.get('textarea').element.value).toBe('Original text')
-		expect(wrapper.get('.rich-text').text()).toBe('Original text')
+		expect(wrapper.find('.recording-artifact-review__preview').exists()).toBe(false)
 	})
 
 	it('renders a load error and retries', async () => {

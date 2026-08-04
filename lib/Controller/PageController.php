@@ -19,6 +19,7 @@ use OCA\Talk\Room;
 use OCA\Talk\Service\ParticipantService;
 use OCA\Talk\Service\RoomService;
 use OCA\Talk\TalkSession;
+use OCA\Text\Event\LoadEditor;
 use OCA\Viewer\Event\LoadViewer;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
@@ -247,6 +248,9 @@ class PageController extends Controller {
 
 		if (class_exists(LoadViewer::class)) {
 			$this->eventDispatcher->dispatchTyped(new LoadViewer());
+		}
+		if (class_exists(LoadEditor::class)) {
+			$this->eventDispatcher->dispatchTyped(new LoadEditor());
 		}
 
 		$this->eventDispatcher->dispatchTyped(new LoadAdditionalScriptsEvent());
