@@ -60,14 +60,18 @@ const title = computed(() => artifact.value?.type === 'summary'
 	: t('spreed', 'Review transcript'))
 
 onMounted(loadArtifact)
-onBeforeUnmount(() => {
+onBeforeUnmount(destroyTextEditor)
+
+/** Destroy the editor before its host element is removed. */
+function destroyTextEditor() {
 	textEditor?.destroy()
 	textEditor = null
-})
+}
 
 /** Load the latest artifact draft. */
 async function loadArtifact() {
 	const request = ++loadRequest
+	destroyTextEditor()
 	isLoading.value = true
 	loadError.value = false
 	try {
@@ -81,8 +85,6 @@ async function loadArtifact() {
 		hasConflict.value = false
 		conflictReason.value = null
 		operationError.value = null
-		await nextTick()
-		await setupTextEditor()
 	} catch (error) {
 		if (request !== loadRequest) {
 			return
@@ -94,6 +96,14 @@ async function loadArtifact() {
 			isLoading.value = false
 		}
 	}
+	if (request !== loadRequest || loadError.value) {
+		return
+	}
+	await nextTick()
+	if (request !== loadRequest) {
+		return
+	}
+	await setupTextEditor()
 }
 
 /** Create the native Nextcloud Text editor, or refresh it after a reload. */
@@ -108,9 +118,10 @@ async function setupTextEditor() {
 	}
 	textEditor?.destroy()
 	textEditor = null
+	const element = editorElement.value
 	try {
-		textEditor = await window.OCA.Text!.createEditor({
-			el: editorElement.value,
+		const editor = await window.OCA.Text!.createEditor({
+			el: element,
 			content: content.value,
 			readOnly,
 			placeholder: t('spreed', 'Review and correct the recording text'),
@@ -118,8 +129,16 @@ async function setupTextEditor() {
 				content.value = markdown
 			},
 		})
+		if (editorElement.value !== element) {
+			editor.destroy()
+			return
+		}
+		textEditor = editor
 		editorReadOnly = readOnly
 	} catch (error) {
+		if (editorElement.value !== element) {
+			return
+		}
 		console.error('Could not initialize the Nextcloud Text editor', error)
 		textEditorAvailable.value = false
 	}

@@ -15,6 +15,7 @@ import {
 } from '../services/recordingArtifactService.ts'
 
 const { spawnDialog } = vi.hoisted(() => ({ spawnDialog: vi.fn() }))
+const originalTextApi = window.OCA.Text
 
 vi.mock('@nextcloud/vue/functions/dialog', () => ({ spawnDialog }))
 vi.mock('@nextcloud/dialogs', () => ({ showError: vi.fn(), showSuccess: vi.fn() }))
@@ -71,11 +72,15 @@ function button(wrapper: ReturnType<typeof mount>, text: string) {
 describe('RecordingArtifactReviewDialog', () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
+		window.OCA.Text = undefined
 		vi.spyOn(console, 'error').mockImplementation(() => {})
 		vi.mocked(getRecordingArtifact).mockResolvedValue(response() as never)
 	})
 
-	afterEach(() => vi.restoreAllMocks())
+	afterEach(() => {
+		window.OCA.Text = originalTextApi
+		vi.restoreAllMocks()
+	})
 
 	it('loads and renders an artifact', async () => {
 		const wrapper = await mountDialog()
@@ -83,6 +88,79 @@ describe('RecordingArtifactReviewDialog', () => {
 		expect(getRecordingArtifact).toHaveBeenCalledWith('room-token', 'artifact-1')
 		expect(wrapper.get('textarea').element.value).toBe('Original text')
 		expect(wrapper.find('.recording-artifact-review__preview').exists()).toBe(false)
+	})
+
+	it('initializes the native editor after its host is rendered', async () => {
+		const editor = { destroy: vi.fn(), setContent: vi.fn() }
+		const createEditor = vi.fn().mockResolvedValue(editor)
+		window.OCA.Text = { createEditor }
+
+		const wrapper = await mountDialog()
+
+		expect(createEditor).toHaveBeenCalledOnce()
+		expect(createEditor).toHaveBeenCalledWith(expect.objectContaining({
+			el: wrapper.get('.recording-artifact-review__text-editor').element,
+			content: 'Original text',
+			readOnly: false,
+		}))
+		expect(wrapper.find('textarea').exists()).toBe(false)
+	})
+
+	it('destroys and recreates the native editor when reloading', async () => {
+		const editing = { ...draft, state: 'editing' as const }
+		const latest = { ...editing, content: 'Latest text', etag: 'etag-2' }
+		vi.mocked(getRecordingArtifact)
+			.mockResolvedValueOnce(response(editing) as never)
+			.mockResolvedValueOnce(response(latest) as never)
+		const firstEditor = { destroy: vi.fn(), setContent: vi.fn() }
+		const secondEditor = { destroy: vi.fn(), setContent: vi.fn() }
+		const createEditor = vi.fn()
+			.mockResolvedValueOnce(firstEditor)
+			.mockResolvedValueOnce(secondEditor)
+		window.OCA.Text = { createEditor }
+		const wrapper = await mountDialog()
+
+		await button(wrapper, 'Check again').trigger('click')
+		await flushPromises()
+
+		expect(firstEditor.destroy).toHaveBeenCalledOnce()
+		expect(createEditor).toHaveBeenCalledTimes(2)
+		expect(createEditor).toHaveBeenLastCalledWith(expect.objectContaining({
+			el: wrapper.get('.recording-artifact-review__text-editor').element,
+			content: 'Latest text',
+			readOnly: true,
+		}))
+	})
+
+	it('destroys an editor that finishes initializing after its host was replaced', async () => {
+		const editing = { ...draft, state: 'editing' as const }
+		vi.mocked(getRecordingArtifact).mockResolvedValue(response(editing) as never)
+		const staleEditor = { destroy: vi.fn(), setContent: vi.fn() }
+		const currentEditor = { destroy: vi.fn(), setContent: vi.fn() }
+		let resolveStaleEditor!: (editor: typeof staleEditor) => void
+		const createEditor = vi.fn()
+			.mockImplementationOnce(() => new Promise((resolve) => {
+				resolveStaleEditor = resolve
+			}))
+			.mockResolvedValueOnce(currentEditor)
+		window.OCA.Text = { createEditor }
+		const wrapper = await mountDialog()
+
+		await button(wrapper, 'Check again').trigger('click')
+		await flushPromises()
+		resolveStaleEditor(staleEditor)
+		await flushPromises()
+
+		expect(staleEditor.destroy).toHaveBeenCalledOnce()
+		expect(currentEditor.destroy).not.toHaveBeenCalled()
+	})
+
+	it('falls back to the textarea when native editor initialization fails', async () => {
+		window.OCA.Text = { createEditor: vi.fn().mockRejectedValue(new Error('editor unavailable')) }
+
+		const wrapper = await mountDialog()
+
+		expect(wrapper.get('textarea').element.value).toBe('Original text')
 	})
 
 	it('renders a load error and retries', async () => {
