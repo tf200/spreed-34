@@ -38,4 +38,34 @@ class GoogleGeminiClientTest extends TestCase {
 
 		$this->assertSame("## Overview\nShort summary", (new GoogleGeminiClient($config, $token, $clientService))->summarize('Transcript'));
 	}
+
+	public function testStandardizesTranscriptWithStrictInstructionsAndPreservedFormat(): void {
+		$config = $this->createMock(GoogleAiConfig::class);
+		$config->method('getValidated')->willReturn([
+			'project' => 'valid-project', 'location' => 'eu', 'bucket' => 'valid-bucket', 'language' => 'en-US',
+			'speechModel' => 'chirp_3', 'geminiLocation' => 'global', 'geminiModel' => 'gemini-2.5-flash-lite', 'serviceAccount' => [],
+		]);
+		$token = $this->createMock(GoogleAuthTokenProvider::class);
+		$token->method('getAccessToken')->willReturn('token');
+		$response = $this->createMock(IResponse::class);
+		$response->method('getBody')->willReturn('{"candidates":[{"content":{"parts":[{"text":"**admin** · 00:55\\nPossessed of a spirit that was steady."}]}}]}');
+		$client = $this->createMock(IClient::class);
+		$client->expects($this->once())->method('post')->with(
+			$this->anything(),
+			$this->callback(function (array $options): bool {
+				$instructions = $options['json']['systemInstruction']['parts'][0]['text'] ?? '';
+				return $options['json']['generationConfig'] === ['temperature' => 0.0, 'maxOutputTokens' => 65536]
+					&& str_contains($instructions, 'Do not summarize')
+					&& str_contains($instructions, 'Use only speaker labels and timestamps that already occur in the input');
+			}),
+		)->willReturn($response);
+		$clientService = $this->createMock(IClientService::class);
+		$clientService->method('newClient')->willReturn($client);
+		$input = "**admin** · 00:55\nPossessed of\n\n**Speaker 1** · 00:58\na\n\n**admin** · 00:59\nspirit that was steady.";
+
+		$this->assertSame(
+			"**admin** · 00:55\nPossessed of a spirit that was steady.",
+			(new GoogleGeminiClient($config, $token, $clientService))->standardizeTranscript($input),
+		);
+	}
 }

@@ -23,7 +23,7 @@ class RecordingAiTranscriptService {
 	) {
 	}
 
-	public function store(RecordingAiOperation $operation): string {
+	public function normalize(RecordingAiOperation $operation): string {
 		$response = json_decode((string)$operation->getSpeechResponse(), true, 64, JSON_THROW_ON_ERROR);
 		$nodes = $this->rootFolder->getUserFolder($operation->getOwnerId())->getById($operation->getRecordingFileId());
 		$recording = array_pop($nodes);
@@ -46,14 +46,17 @@ class RecordingAiTranscriptService {
 		if ($markdown === '') {
 			throw new GoogleApiException('Speech recognition returned an empty transcript');
 		}
+		return $markdown;
+	}
+
+	public function store(RecordingAiOperation $operation, string $transcript): void {
 		$this->recordingService->storeTranscript(
 			$operation->getOwnerId(),
 			$operation->getRoomToken(),
 			$operation->getRecordingFileId(),
-			$markdown,
+			$transcript,
 			'transcript',
 			false,
 		);
-		return $markdown;
 	}
 }

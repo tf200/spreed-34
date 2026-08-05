@@ -65,6 +65,7 @@ class RecordingAiProcessor {
 				RecordingAiOperation::STATE_SUBMITTED => $this->resumeSubmitted($operation, $claimToken),
 				RecordingAiOperation::STATE_TRANSCRIBING => $this->poll($operation, $claimToken),
 				RecordingAiOperation::STATE_MAPPING => $this->map($operation, $claimToken),
+				RecordingAiOperation::STATE_CLEANING => $this->clean($operation, $claimToken),
 				RecordingAiOperation::STATE_SUMMARIZING => $this->summarize($operation, $claimToken),
 				default => $this->invalidState($operation, $claimToken),
 			};
@@ -164,8 +165,28 @@ class RecordingAiProcessor {
 		}
 
 		try {
-			$transcript = $this->transcriptService->store($operation);
+			$transcript = $this->transcriptService->normalize($operation);
 			$operation->setSpeechResponse(null);
+			$operation->setTranscript($transcript);
+			$operation->setState(RecordingAiOperation::STATE_CLEANING);
+			$this->resetErrors($operation);
+			$this->schedule($operation, 0);
+			return $this->persist($operation, $claimToken);
+		} catch (\Throwable $e) {
+			$this->retryOrFail($operation, $claimToken, 'mapping_failed', $this->getErrorMessage('Transcript normalization failed', $e));
+		}
+		return false;
+	}
+
+	private function clean(RecordingAiOperation $operation, string $claimToken): bool {
+		if ($operation->getTranscript() === null) {
+			$this->fail($operation, $claimToken, 'invalid_state', 'Cleaning operation has no transcript');
+			return false;
+		}
+
+		try {
+			$transcript = $this->gemini->standardizeTranscript($operation->getTranscript());
+			$this->transcriptService->store($operation, $transcript);
 			$this->resetErrors($operation);
 			if ($this->serverConfig->getAppValue('spreed', 'call_recording_summary', 'yes') === 'yes') {
 				$operation->setTranscript($transcript);
@@ -174,10 +195,13 @@ class RecordingAiProcessor {
 				return $this->persist($operation, $claimToken);
 			}
 
+			$operation->setTranscript(null);
 			$operation->setState(RecordingAiOperation::STATE_COMPLETED);
 			$this->persist($operation, $claimToken);
+		} catch (GoogleApiException $e) {
+			$this->retryOrFail($operation, $claimToken, 'transcript_cleanup_failed', $this->getErrorMessage('Transcript cleanup failed', $e));
 		} catch (\Throwable $e) {
-			$this->retryOrFail($operation, $claimToken, 'mapping_failed', $this->getErrorMessage('Transcript normalization or storage failed', $e));
+			$this->retryOrFail($operation, $claimToken, 'transcript_store_failed', $this->getErrorMessage('Cleaned transcript storage failed', $e));
 		}
 		return false;
 	}
@@ -280,6 +304,7 @@ class RecordingAiProcessor {
 			RecordingAiOperation::STATE_SUBMITTED,
 			RecordingAiOperation::STATE_TRANSCRIBING,
 			RecordingAiOperation::STATE_MAPPING,
+			RecordingAiOperation::STATE_CLEANING,
 			RecordingAiOperation::STATE_SUMMARIZING,
 		], true)) {
 			$claimUntil->modify('+' . self::STAGE_LEASE_SECONDS . ' seconds');

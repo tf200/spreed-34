@@ -103,6 +103,7 @@ class RecordingAiOperationMapper extends QBMapper {
 				RecordingAiOperation::STATE_SUBMITTED,
 				RecordingAiOperation::STATE_TRANSCRIBING,
 				RecordingAiOperation::STATE_MAPPING,
+				RecordingAiOperation::STATE_CLEANING,
 				RecordingAiOperation::STATE_SUMMARIZING,
 			], IQueryBuilder::PARAM_STR_ARRAY)))
 			->andWhere($query->expr()->orX(

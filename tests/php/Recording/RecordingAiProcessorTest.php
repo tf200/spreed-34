@@ -155,18 +155,20 @@ class RecordingAiProcessorTest extends TestCase {
 		$operation = $this->createOperation(RecordingAiOperation::STATE_TRANSCRIBING);
 		$operation->setSpeechOperation('speech-operation');
 		$operation->setGcsObject('recording-object');
-		$this->expectStageClaims($operation, 3);
+		$this->expectStageClaims($operation, 4);
 		$this->speech->expects($this->once())->method('poll')->willReturn([
 			'done' => true,
 			'response' => ['results' => ['recording-object' => ['transcript' => ['results' => []]]]],
 		]);
 		$this->storage->expects($this->once())->method('delete')->with('recording-object');
-		$this->transcriptService->expects($this->once())->method('store')->with($operation)->willReturn('Meeting transcript');
-		$this->gemini->expects($this->once())->method('summarize')->with('Meeting transcript')->willReturn('Meeting summary');
+		$this->transcriptService->expects($this->once())->method('normalize')->with($operation)->willReturn('Raw meeting transcript');
+		$this->gemini->expects($this->once())->method('standardizeTranscript')->with('Raw meeting transcript')->willReturn('Clean meeting transcript');
+		$this->transcriptService->expects($this->once())->method('store')->with($operation, 'Clean meeting transcript');
+		$this->gemini->expects($this->once())->method('summarize')->with('Clean meeting transcript')->willReturn('Meeting summary');
 		$this->recordingService->expects($this->once())->method('storeTranscript')
 			->with('owner', 'room', 123, 'Meeting summary', 'summary', false);
 		$states = [];
-		$this->mapper->expects($this->exactly(3))->method('updateClaimed')
+		$this->mapper->expects($this->exactly(4))->method('updateClaimed')
 			->willReturnCallback(function (RecordingAiOperation $updated) use (&$states): bool {
 				$states[] = $updated->getState();
 				return true;
@@ -176,6 +178,7 @@ class RecordingAiProcessorTest extends TestCase {
 
 		$this->assertSame([
 			RecordingAiOperation::STATE_MAPPING,
+			RecordingAiOperation::STATE_CLEANING,
 			RecordingAiOperation::STATE_SUMMARIZING,
 			RecordingAiOperation::STATE_COMPLETED,
 		], $states);
@@ -184,10 +187,10 @@ class RecordingAiProcessorTest extends TestCase {
 		$this->assertNull($operation->getGcsObject());
 	}
 
-	public function testMappingCompletesWithoutGeminiWhenSummaryIsDisabled(): void {
+	public function testMappingCleansTranscriptWithoutSummaryWhenSummaryIsDisabled(): void {
 		$operation = $this->createOperation(RecordingAiOperation::STATE_MAPPING);
 		$operation->setSpeechResponse('{}');
-		$this->expectStageClaims($operation);
+		$this->expectStageClaims($operation, 2);
 		$this->serverConfig = $this->createMock(IConfig::class);
 		$this->serverConfig->method('getAppValue')->willReturn('no');
 		$this->processor = new RecordingAiProcessor(
@@ -201,23 +204,32 @@ class RecordingAiProcessorTest extends TestCase {
 			$this->recordingService,
 			$this->serverConfig,
 		);
-		$this->transcriptService->expects($this->once())->method('store')->willReturn('Meeting transcript');
+		$this->transcriptService->expects($this->once())->method('normalize')->willReturn('Raw meeting transcript');
+		$this->gemini->expects($this->once())->method('standardizeTranscript')->with('Raw meeting transcript')->willReturn('Clean meeting transcript');
+		$this->transcriptService->expects($this->once())->method('store')->with($operation, 'Clean meeting transcript');
 		$this->gemini->expects($this->never())->method('summarize');
-		$this->mapper->expects($this->once())->method('updateClaimed')
-			->willReturnCallback(function (RecordingAiOperation $updated): bool {
-				$this->assertSame(RecordingAiOperation::STATE_COMPLETED, $updated->getState());
-				$this->assertNull($updated->getSpeechResponse());
+		$states = [];
+		$this->mapper->expects($this->exactly(2))->method('updateClaimed')
+			->willReturnCallback(function (RecordingAiOperation $updated) use (&$states): bool {
+				$states[] = $updated->getState();
 				return true;
 			});
 
 		$this->processor->process(42);
+
+		$this->assertSame([
+			RecordingAiOperation::STATE_CLEANING,
+			RecordingAiOperation::STATE_COMPLETED,
+		], $states);
+		$this->assertNull($operation->getSpeechResponse());
+		$this->assertNull($operation->getTranscript());
 	}
 
 	public function testMappingRetryStopsBeforeSummary(): void {
 		$operation = $this->createOperation(RecordingAiOperation::STATE_MAPPING);
 		$operation->setSpeechResponse('{}');
 		$this->expectStageClaims($operation);
-		$this->transcriptService->method('store')->willThrowException(new \RuntimeException('storage unavailable'));
+		$this->transcriptService->method('normalize')->willThrowException(new \RuntimeException('normalization unavailable'));
 		$this->gemini->expects($this->never())->method('summarize');
 		$this->mapper->expects($this->once())->method('updateClaimed')
 			->willReturnCallback(function (RecordingAiOperation $updated): bool {
@@ -275,6 +287,23 @@ class RecordingAiProcessorTest extends TestCase {
 		$this->processor->process(42);
 	}
 
+	public function testTranscriptCleanupFailureIsRetriedWithoutStoringTranscript(): void {
+		$operation = $this->createOperation(RecordingAiOperation::STATE_CLEANING);
+		$operation->setTranscript('Raw meeting transcript');
+		$this->expectStageClaims($operation);
+		$this->gemini->method('standardizeTranscript')->willThrowException(new \OCA\Talk\Recording\GoogleApiException('invalid response'));
+		$this->transcriptService->expects($this->never())->method('store');
+		$this->mapper->expects($this->once())->method('updateClaimed')
+			->willReturnCallback(function (RecordingAiOperation $updated): bool {
+				$this->assertSame(RecordingAiOperation::STATE_CLEANING, $updated->getState());
+				$this->assertSame(1, $updated->getAttempts());
+				$this->assertSame('transcript_cleanup_failed', $updated->getLastErrorCode());
+				return true;
+			});
+
+		$this->processor->process(42);
+	}
+
 	public function testSubmittedOperationResumesPollingPipeline(): void {
 		$operation = $this->createOperation(RecordingAiOperation::STATE_SUBMITTED);
 		$operation->setSpeechOperation('speech-operation');
@@ -300,7 +329,7 @@ class RecordingAiProcessorTest extends TestCase {
 		$operation->setSpeechResponse('{}');
 		$operation->setDeadlineAt(new \DateTime('2026-07-15T10:00:30+00:00'));
 		$this->expectStageClaims($operation);
-		$this->transcriptService->method('store')->willThrowException(new \RuntimeException('storage unavailable'));
+		$this->transcriptService->method('normalize')->willThrowException(new \RuntimeException('normalization unavailable'));
 		$this->mapper->expects($this->once())->method('updateClaimed')
 			->willReturnCallback(function (RecordingAiOperation $updated): bool {
 				$this->assertSame(strtotime('2026-07-15T10:00:30+00:00'), $updated->getNextAttemptAt()->getTimestamp());
