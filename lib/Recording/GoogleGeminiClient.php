@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace OCA\Talk\Recording;
 
+use GuzzleHttp\Exception\RequestException;
 use OCP\Http\Client\IClientService;
 
 class GoogleGeminiClient {
@@ -41,7 +42,7 @@ PROMPT;
 			'transcript cleanup',
 			instructions: $instructions,
 			temperature: 0.0,
-			maxOutputTokens: 65536,
+			maxOutputTokens: 65535,
 			timeout: 300,
 		);
 		$this->validateTranscriptFormat($cleaned, $transcript);
@@ -78,6 +79,8 @@ PROMPT;
 				'timeout' => $timeout,
 			]);
 			$payload = json_decode((string)$response->getBody(), true, 32, JSON_THROW_ON_ERROR);
+		} catch (RequestException $e) {
+			throw new GoogleApiException($this->getRequestError("Gemini $task request failed", $e));
 		} catch (\Throwable) {
 			throw new GoogleApiException("Gemini $task request failed");
 		}
@@ -94,6 +97,22 @@ PROMPT;
 			throw new GoogleApiException("Gemini returned empty $task output");
 		}
 		return $output;
+	}
+
+	private function getRequestError(string $prefix, RequestException $exception): string {
+		$response = $exception->getResponse();
+		if ($response === null) {
+			return $prefix;
+		}
+		$message = '';
+		try {
+			$payload = json_decode((string)$response->getBody(), true, 8, JSON_THROW_ON_ERROR);
+			$message = is_string($payload['error']['message'] ?? null) ? $payload['error']['message'] : '';
+		} catch (\Throwable) {
+			// The HTTP status still provides a safe diagnostic.
+		}
+		$message = preg_replace('/\s+/', ' ', $message) ?? '';
+		return substr($prefix . ' (HTTP ' . $response->getStatusCode() . ')' . ($message !== '' ? ': ' . $message : ''), 0, 500);
 	}
 
 	private function validateTranscriptFormat(string $transcript, string $original): void {

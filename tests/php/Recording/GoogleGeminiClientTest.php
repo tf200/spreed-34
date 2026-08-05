@@ -9,7 +9,11 @@ declare(strict_types=1);
 
 namespace OCA\Talk\Tests\Recording;
 
+use GuzzleHttp\Exception\ClientException;
+use GuzzleHttp\Psr7\Request;
+use GuzzleHttp\Psr7\Response;
 use OCA\Talk\Recording\GoogleAiConfig;
+use OCA\Talk\Recording\GoogleApiException;
 use OCA\Talk\Recording\GoogleAuthTokenProvider;
 use OCA\Talk\Recording\GoogleGeminiClient;
 use OCP\Http\Client\IClient;
@@ -54,7 +58,7 @@ class GoogleGeminiClientTest extends TestCase {
 			$this->anything(),
 			$this->callback(function (array $options): bool {
 				$instructions = $options['json']['systemInstruction']['parts'][0]['text'] ?? '';
-				return $options['json']['generationConfig'] === ['temperature' => 0.0, 'maxOutputTokens' => 65536]
+				return $options['json']['generationConfig'] === ['temperature' => 0.0, 'maxOutputTokens' => 65535]
 					&& str_contains($instructions, 'Do not summarize')
 					&& str_contains($instructions, 'Use only speaker labels and timestamps that already occur in the input');
 			}),
@@ -67,5 +71,28 @@ class GoogleGeminiClientTest extends TestCase {
 			"**admin** · 00:55\nPossessed of a spirit that was steady.",
 			(new GoogleGeminiClient($config, $token, $clientService))->standardizeTranscript($input),
 		);
+	}
+
+	public function testIncludesGoogleResponseInRequestFailure(): void {
+		$config = $this->createMock(GoogleAiConfig::class);
+		$config->method('getValidated')->willReturn([
+			'project' => 'valid-project', 'location' => 'eu', 'bucket' => 'valid-bucket', 'language' => 'en-US',
+			'speechModel' => 'chirp_3', 'geminiLocation' => 'global', 'geminiModel' => 'gemini-2.5-flash-lite', 'serviceAccount' => [],
+		]);
+		$token = $this->createMock(GoogleAuthTokenProvider::class);
+		$token->method('getAccessToken')->willReturn('token');
+		$client = $this->createMock(IClient::class);
+		$client->method('post')->willThrowException(new ClientException(
+			'Bad request',
+			new Request('POST', 'https://aiplatform.googleapis.com'),
+			new Response(429, body: '{"error":{"message":"Quota exceeded for generate requests"}}'),
+		));
+		$clientService = $this->createMock(IClientService::class);
+		$clientService->method('newClient')->willReturn($client);
+
+		$this->expectException(GoogleApiException::class);
+		$this->expectExceptionMessage('Gemini summary request failed (HTTP 429): Quota exceeded for generate requests');
+
+		(new GoogleGeminiClient($config, $token, $clientService))->summarize('Transcript');
 	}
 }
