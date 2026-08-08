@@ -15,8 +15,8 @@ use OCP\DB\Types;
 /**
  * @method int getRecordingFileId()
  * @method void setRecordingFileId(int $value)
- * @method int getSourceFileId()
- * @method void setSourceFileId(int $value)
+ * @method int|null getSourceFileId()
+ * @method void setSourceFileId(?int $value)
  * @method int|null getPublishedFileId()
  * @method void setPublishedFileId(?int $value)
  * @method int|null getPublishedMessageId()
@@ -50,7 +50,7 @@ class RecordingArtifact extends SnowflakeAwareEntity {
 	public const STATE_PUBLISHED = 'published';
 
 	protected int $recordingFileId = 0;
-	protected int $sourceFileId = 0;
+	protected ?int $sourceFileId = null;
 	protected ?int $publishedFileId = null;
 	protected ?int $publishedMessageId = null;
 	protected ?int $publishedShareId = null;

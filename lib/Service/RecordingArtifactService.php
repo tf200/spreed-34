@@ -11,10 +11,13 @@ namespace OCA\Talk\Service;
 
 use OCA\Talk\Chat\ChatManager;
 use OCA\Talk\Config;
+use OCA\Talk\Exceptions\RecordingArtifactConversionException;
 use OCA\Talk\Exceptions\RecordingArtifactException;
 use OCA\Talk\Model\RecordingArtifact;
 use OCA\Talk\Model\RecordingArtifactMapper;
 use OCA\Talk\Participant;
+use OCA\Talk\Recording\EuroOfficePdfConverter;
+use OCA\Talk\Recording\ProjectRecordingFolderProvider;
 use OCA\Talk\Room;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Utility\ITimeFactory;
@@ -46,6 +49,8 @@ class RecordingArtifactService {
 		private readonly AttachmentService $attachmentService,
 		private readonly IShareManager $shareManager,
 		private readonly ISystemTagObjectMapper $systemTagMapper,
+		private readonly EuroOfficePdfConverter $pdfConverter,
+		private readonly ProjectRecordingFolderProvider $projectRecordingFolderProvider,
 		private readonly LoggerInterface $logger,
 	) {
 	}
@@ -118,10 +123,11 @@ class RecordingArtifactService {
 
 	/** @return array{id: string, type: string, state: string, fileName: string, content: string, etag: string, publishedFileId: ?string, publishedMessageId: ?string} */
 	public function get(Room $room, Participant $participant, string $artifactId): array {
-		[$artifact, $file] = $this->resolveDraft($room, $participant, $artifactId);
+		$artifact = $this->resolveArtifact($room, $participant, $artifactId);
 		if ($artifact->getState() === RecordingArtifact::STATE_PUBLISHED) {
-			$file = $this->resolvePublishedFile($artifact);
+			return $this->formatAndCleanupPublished($artifact);
 		}
+		[$artifact, $file] = $this->resolveDraft($room, $participant, $artifactId);
 		return $this->format($artifact, $file);
 	}
 
@@ -160,9 +166,13 @@ class RecordingArtifactService {
 
 	/** @return array{id: string, type: string, state: string, fileName: string, content: string, etag: string, publishedFileId: ?string, publishedMessageId: ?string} */
 	public function publish(Room $room, Participant $participant, string $artifactId, string $etag): array {
-		[$artifact, $sourceFile] = $this->resolveDraft($room, $participant, $artifactId, false);
+		$artifact = $this->resolveArtifact($room, $participant, $artifactId);
 		if ($artifact->getState() === RecordingArtifact::STATE_PUBLISHED) {
-			return $this->format($artifact, $this->resolvePublishedFile($artifact));
+			return $this->formatAndCleanupPublished($artifact);
+		}
+		$sourceFile = $this->resolveSourceFile($artifact);
+		if (!$sourceFile instanceof File || $sourceFile->getParent()->getName() !== $room->getToken()) {
+			throw new RecordingArtifactException(RecordingArtifactException::NOT_FOUND);
 		}
 		if ($artifact->getState() === RecordingArtifact::STATE_EDITING) {
 			throw new RecordingArtifactException(RecordingArtifactException::EDITING);
@@ -217,13 +227,33 @@ class RecordingArtifactService {
 				throw new \RuntimeException('Could not finish artifact publication');
 			}
 			$artifact = $this->mapper->findById($artifactId);
-			return $this->format($artifact, $publishedFile);
+			$result = $this->formatPublished($artifact, $publishedFile, $sourceFile);
+			$this->deletePublishedSource($artifact, $sourceFile);
+			return $result;
 		} catch (\Throwable $e) {
-			// Keep partial publication metadata. A stale lease can safely resume it.
+			$hasPersistedFile = $artifact->getPublishedFileId() !== null;
+			if (!$hasPersistedFile && !($e instanceof RecordingArtifactConversionException)) {
+				try {
+					$hasPersistedFile = $this->mapper->findById($artifactId)->getPublishedFileId() !== null;
+				} catch (\Throwable) {
+					$hasPersistedFile = true;
+				}
+			}
+			if (!$hasPersistedFile) {
+				try {
+					$this->mapper->releaseClaim($artifactId, $claimToken, $sourceFile->getEtag(), $this->timeFactory->getDateTime());
+				} catch (\Throwable $releaseError) {
+					$this->logger->error('Could not release recording artifact publication claim', ['exception' => $releaseError]);
+				}
+			}
+			// Keep persisted publication metadata so a stale lease can safely resume it.
 			$this->logger->error('Could not publish recording artifact', ['exception' => $e]);
-			throw new RecordingArtifactException($e instanceof NotEnoughSpaceException
-				? RecordingArtifactException::QUOTA
-				: RecordingArtifactException::STORAGE);
+			$reason = match (true) {
+				$e instanceof RecordingArtifactConversionException => RecordingArtifactException::CONVERSION,
+				$e instanceof NotEnoughSpaceException => RecordingArtifactException::QUOTA,
+				default => RecordingArtifactException::STORAGE,
+			};
+			throw new RecordingArtifactException($reason);
 		}
 	}
 
@@ -231,57 +261,90 @@ class RecordingArtifactService {
 	private function ensurePublishedFile(Room $room, RecordingArtifact $artifact, File $sourceFile, string $claimToken): array {
 		if ($artifact->getPublishedFileId() !== null) {
 			$file = $this->resolvePublishedFile($artifact);
+			$fileParent = $file->getParent();
+			$sourceParent = $sourceFile->getParent();
+			if (!$fileParent instanceof Folder || !$sourceParent instanceof Folder) {
+				throw new \RuntimeException('Artifact publication parent is not a folder');
+			}
+			$skipRoomShare = $fileParent->getId() !== $sourceParent->getId();
 			if (str_starts_with($file->getName(), '.recording-artifact-publication-')) {
-				$targetFolder = $this->getPublicationTargetFolder($room, $artifact, $sourceFile);
-				$result = $this->conversationFolderService->finalizeUploadedFile($targetFolder, $file, $sourceFile->getName());
+				$targetFolder = $fileParent->getName() === 'Draft'
+					? $this->conversationFolderService->getOrCreateSubfolder($artifact->getOwnerId(), $room)
+					: $fileParent;
+				$publishedName = pathinfo($sourceFile->getName(), PATHINFO_FILENAME) . '.pdf';
+				$result = $this->conversationFolderService->finalizeUploadedFile($targetFolder, $file, $publishedName);
 				$file = $result['node'];
 				if (!$file instanceof File) {
 					throw new \RuntimeException('Published artifact is not a file');
 				}
 			}
 			$this->assignGeneratedByAiTag($file);
-			$artifact = $this->ensurePublishedShare($room, $artifact, $file, $claimToken);
+			$artifact = $this->ensurePublishedShare($room, $artifact, $file, $claimToken, $skipRoomShare);
 			return [$artifact, $file, $this->messageParameters($artifact, $file)];
 		}
 
-		$targetFolder = $this->getPublicationTargetFolder($room, $artifact, $sourceFile);
-		if ($this->config->isConversationSubfoldersEnabled()) {
+		[$targetFolder, $isProjectFolder] = $this->getPublicationTargetFolder($room, $artifact, $sourceFile);
+		if (!$isProjectFolder && $this->config->isConversationSubfoldersEnabled()) {
 			$draftFolder = $this->conversationFolderService->getOrCreateDraftFolder($targetFolder);
 		} else {
 			$draftFolder = $targetFolder;
 		}
 
-		$tempName = '.recording-artifact-publication-' . $artifact->getId() . '.md';
+		$sourceRevision = substr(hash('sha256', $sourceFile->getEtag()), 0, 12);
+		$tempName = '.recording-artifact-publication-' . $artifact->getId() . '-' . $sourceRevision . '-' . $claimToken . '.pdf';
 		if ($draftFolder->nodeExists($tempName)) {
 			$stagedFile = $draftFolder->get($tempName);
 			if (!$stagedFile instanceof File) {
 				throw new \RuntimeException('Artifact staging path is not a file');
 			}
 		} else {
-			$stagedFile = $sourceFile->copy($draftFolder->getPath() . '/' . $tempName);
+			try {
+				$pdf = $this->pdfConverter->convert($sourceFile, $artifact->getOwnerId());
+			} catch (\Throwable $e) {
+				throw new RecordingArtifactConversionException('Could not convert recording artifact to PDF', previous: $e);
+			}
+			$stagedFile = $draftFolder->newFile($tempName, $pdf);
 		}
-		if (!$this->mapper->updatePublication(
-			(string)$artifact->getId(),
-			$claimToken,
-			$stagedFile->getId(),
-			null,
-			null,
-			$this->timeFactory->getDateTime(),
-		)) {
+		try {
+			$persisted = $this->mapper->updatePublication(
+				(string)$artifact->getId(),
+				$claimToken,
+				$stagedFile->getId(),
+				null,
+				null,
+				$this->timeFactory->getDateTime(),
+			);
+		} catch (\Throwable $e) {
+			$this->cleanupUnpersistedStagedFile($artifact, $stagedFile);
+			throw $e;
+		}
+		if (!$persisted) {
+			$this->cleanupUnpersistedStagedFile($artifact, $stagedFile);
 			throw new \RuntimeException('Could not persist artifact publication file');
 		}
 		$artifact = $this->mapper->findById((string)$artifact->getId());
-		$result = $this->conversationFolderService->finalizeUploadedFile($targetFolder, $stagedFile, $sourceFile->getName());
+		$publishedName = pathinfo($sourceFile->getName(), PATHINFO_FILENAME) . '.pdf';
+		$result = $this->conversationFolderService->finalizeUploadedFile($targetFolder, $stagedFile, $publishedName);
 		$publishedFile = $result['node'];
 		if (!$publishedFile instanceof File) {
 			throw new \RuntimeException('Published artifact is not a file');
 		}
 		$this->assignGeneratedByAiTag($publishedFile);
-		$artifact = $this->ensurePublishedShare($room, $artifact, $publishedFile, $claimToken);
+		$skipRoomShare = $isProjectFolder || $this->config->isConversationSubfoldersEnabled();
+		$artifact = $this->ensurePublishedShare($room, $artifact, $publishedFile, $claimToken, $skipRoomShare);
 		return [$artifact, $publishedFile, $this->messageParameters($artifact, $publishedFile)];
 	}
 
-	private function getPublicationTargetFolder(Room $room, RecordingArtifact $artifact, File $sourceFile): Folder {
+	/** @return array{Folder, bool} */
+	private function getPublicationTargetFolder(Room $room, RecordingArtifact $artifact, File $sourceFile): array {
+		$projectFolder = $this->projectRecordingFolderProvider->getFolder($room->getToken(), $artifact->getOwnerId());
+		if ($projectFolder !== null) {
+			return [$projectFolder, true];
+		}
+		return [$this->getFallbackPublicationTargetFolder($room, $artifact, $sourceFile), false];
+	}
+
+	private function getFallbackPublicationTargetFolder(Room $room, RecordingArtifact $artifact, File $sourceFile): Folder {
 		if ($this->config->isConversationSubfoldersEnabled()) {
 			return $this->conversationFolderService->getOrCreateSubfolder($artifact->getOwnerId(), $room);
 		}
@@ -303,8 +366,8 @@ class RecordingArtifactService {
 		}
 	}
 
-	private function ensurePublishedShare(Room $room, RecordingArtifact $artifact, File $file, string $claimToken): RecordingArtifact {
-		if ($this->config->isConversationSubfoldersEnabled() || $artifact->getPublishedShareId() !== null) {
+	private function ensurePublishedShare(Room $room, RecordingArtifact $artifact, File $file, string $claimToken, bool $skipRoomShare): RecordingArtifact {
+		if ($skipRoomShare || $artifact->getPublishedShareId() !== null) {
 			return $artifact;
 		}
 
@@ -367,24 +430,9 @@ class RecordingArtifactService {
 
 	/** @return array{RecordingArtifact, File} */
 	private function resolveDraft(Room $room, Participant $participant, string $artifactId, bool $reconcileEtag = true): array {
-		try {
-			$artifact = $this->mapper->findById($artifactId);
-		} catch (DoesNotExistException) {
-			throw new RecordingArtifactException(RecordingArtifactException::NOT_FOUND);
-		}
-
-		$ownerId = $participant->getAttendee()->getActorId();
-		if ($artifact->getOwnerId() !== $ownerId || $artifact->getRoomToken() !== $room->getToken()) {
-			throw new RecordingArtifactException(RecordingArtifactException::NOT_FOUND);
-		}
-
-		try {
-			$nodes = $this->rootFolder->getUserFolder($ownerId)->getById($artifact->getSourceFileId());
-			$file = array_shift($nodes);
-			if (!$file instanceof File || $file->getParent()->getName() !== $room->getToken()) {
-				throw new NotFoundException();
-			}
-		} catch (\Throwable) {
+		$artifact = $this->resolveArtifact($room, $participant, $artifactId);
+		$file = $this->resolveSourceFile($artifact);
+		if (!$file instanceof File || $file->getParent()->getName() !== $room->getToken()) {
 			throw new RecordingArtifactException(RecordingArtifactException::NOT_FOUND);
 		}
 
@@ -397,6 +445,37 @@ class RecordingArtifactService {
 			}
 		}
 		return [$artifact, $file];
+	}
+
+	private function resolveArtifact(Room $room, Participant $participant, string $artifactId): RecordingArtifact {
+		try {
+			$artifact = $this->mapper->findById($artifactId);
+		} catch (DoesNotExistException) {
+			throw new RecordingArtifactException(RecordingArtifactException::NOT_FOUND);
+		}
+
+		$ownerId = $participant->getAttendee()->getActorId();
+		if ($artifact->getOwnerId() !== $ownerId || $artifact->getRoomToken() !== $room->getToken()) {
+			throw new RecordingArtifactException(RecordingArtifactException::NOT_FOUND);
+		}
+		return $artifact;
+	}
+
+	private function resolveSourceFile(RecordingArtifact $artifact): ?File {
+		$sourceFileId = $artifact->getSourceFileId();
+		if ($sourceFileId === null) {
+			return null;
+		}
+		try {
+			$nodes = $this->rootFolder->getUserFolder($artifact->getOwnerId())->getById($sourceFileId);
+			$file = array_shift($nodes);
+			if (!$file instanceof File) {
+				throw new NotFoundException();
+			}
+			return $file;
+		} catch (\Throwable) {
+			return null;
+		}
 	}
 
 	private function resolvePublishedFile(RecordingArtifact $artifact): File {
@@ -444,6 +523,52 @@ class RecordingArtifactService {
 		}
 	}
 
+	private function deletePublishedSource(RecordingArtifact $artifact, File $sourceFile): void {
+		$sourceFileId = $sourceFile->getId();
+		try {
+			$sourceFile->delete();
+		} catch (\Throwable $e) {
+			$this->logger->warning('Could not delete published recording artifact source', ['exception' => $e]);
+			return;
+		}
+		if (!$this->mapper->clearSourceFile((string)$artifact->getId(), $sourceFileId, $this->timeFactory->getDateTime())) {
+			$this->logger->warning('Could not clear published recording artifact source reference', [
+				'artifactId' => $artifact->getId(),
+				'sourceFileId' => $sourceFileId,
+			]);
+		}
+	}
+
+	private function cleanupUnpersistedStagedFile(RecordingArtifact $artifact, File $stagedFile): void {
+		try {
+			$persistedFileId = $this->mapper->findById((string)$artifact->getId())->getPublishedFileId();
+		} catch (\Throwable) {
+			// Preserve the staging file when persistence is uncertain so recovery remains possible.
+			return;
+		}
+		if ($persistedFileId !== null) {
+			$artifact->setPublishedFileId($persistedFileId);
+			if ($persistedFileId === $stagedFile->getId()) {
+				return;
+			}
+		}
+		try {
+			$stagedFile->delete();
+		} catch (\Throwable $e) {
+			$this->logger->warning('Could not delete unpersisted recording artifact PDF', ['exception' => $e]);
+		}
+	}
+
+	/** @return array{id: string, type: string, state: string, fileName: string, content: string, etag: string, publishedFileId: ?string, publishedMessageId: ?string} */
+	private function formatAndCleanupPublished(RecordingArtifact $artifact): array {
+		$sourceFile = $this->resolveSourceFile($artifact);
+		$result = $this->formatPublished($artifact, $this->resolvePublishedFile($artifact), $sourceFile);
+		if ($sourceFile !== null) {
+			$this->deletePublishedSource($artifact, $sourceFile);
+		}
+		return $result;
+	}
+
 	/** @return array{id: string, type: string, state: string, fileName: string, content: string, etag: string, publishedFileId: ?string, publishedMessageId: ?string} */
 	private function format(RecordingArtifact $artifact, File $file): array {
 		return [
@@ -453,6 +578,20 @@ class RecordingArtifactService {
 			'fileName' => $file->getName(),
 			'content' => $file->getContent(),
 			'etag' => $file->getEtag(),
+			'publishedFileId' => $artifact->getPublishedFileId() === null ? null : (string)$artifact->getPublishedFileId(),
+			'publishedMessageId' => $artifact->getPublishedMessageId() === null ? null : (string)$artifact->getPublishedMessageId(),
+		];
+	}
+
+	/** @return array{id: string, type: string, state: string, fileName: string, content: string, etag: string, publishedFileId: ?string, publishedMessageId: ?string} */
+	private function formatPublished(RecordingArtifact $artifact, File $publishedFile, ?File $sourceFile): array {
+		return [
+			'id' => (string)$artifact->getId(),
+			'type' => $artifact->getType(),
+			'state' => $artifact->getState(),
+			'fileName' => $publishedFile->getName(),
+			'content' => $sourceFile?->getContent() ?? '',
+			'etag' => $sourceFile?->getEtag() ?? $publishedFile->getEtag(),
 			'publishedFileId' => $artifact->getPublishedFileId() === null ? null : (string)$artifact->getPublishedFileId(),
 			'publishedMessageId' => $artifact->getPublishedMessageId() === null ? null : (string)$artifact->getPublishedMessageId(),
 		];

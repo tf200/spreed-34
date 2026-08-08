@@ -193,6 +193,7 @@ describe('RecordingArtifactReviewDialog', () => {
 		expect(publishRecordingArtifact).toHaveBeenCalledWith('room-token', 'artifact-1', 'etag-2', 1234)
 		expect(vi.mocked(updateRecordingArtifact).mock.invocationCallOrder[0])
 			.toBeLessThan(vi.mocked(publishRecordingArtifact).mock.invocationCallOrder[0])
+		expect(wrapper.emitted('close')).toHaveLength(1)
 	})
 
 	it('shows the structured 409 state and blocks publishing', async () => {
@@ -211,11 +212,41 @@ describe('RecordingArtifactReviewDialog', () => {
 	})
 
 	it('renders published artifacts read-only without draft actions', async () => {
-		vi.mocked(getRecordingArtifact).mockResolvedValue(response({ ...draft, state: 'published' }) as never)
+		vi.mocked(getRecordingArtifact).mockResolvedValue(response({ ...draft, state: 'published', fileName: 'summary.pdf', content: '' }) as never)
 		const wrapper = await mountDialog()
 
-		expect(wrapper.get('[role="status"]').text()).toBe('Published')
-		expect(wrapper.get('textarea').attributes('disabled')).toBeDefined()
+		expect(wrapper.get('[role="status"]').text()).toBe('Published as summary.pdf')
+		expect(wrapper.find('textarea').exists()).toBe(false)
 		expect(button(wrapper, 'Publish to chat')).toBeUndefined()
+	})
+
+	it('keeps the draft open when Euro Office conversion fails', async () => {
+		vi.mocked(publishRecordingArtifact).mockRejectedValue({
+			isAxiosError: true,
+			response: { status: 503, data: { ocs: { data: { error: 'conversion' } } } },
+		})
+		spawnDialog.mockResolvedValue(true)
+		const wrapper = await mountDialog()
+
+		await button(wrapper, 'Publish to chat').trigger('click')
+		await flushPromises()
+
+		expect(wrapper.get('[role="alert"]').text()).toContain('Euro Office could not create the PDF')
+		expect(wrapper.emitted('close')).toBeUndefined()
+		expect(button(wrapper, 'Retry')).toBeDefined()
+	})
+
+	it('allows retrying a recoverable publication', async () => {
+		const publishing = { ...draft, state: 'publishing' as const }
+		vi.mocked(getRecordingArtifact).mockResolvedValue(response(publishing) as never)
+		vi.mocked(publishRecordingArtifact).mockResolvedValue(response({ ...publishing, state: 'published' }) as never)
+		spawnDialog.mockResolvedValue(true)
+		const wrapper = await mountDialog()
+
+		await button(wrapper, 'Retry publication').trigger('click')
+		await flushPromises()
+
+		expect(publishRecordingArtifact).toHaveBeenCalledWith('room-token', 'artifact-1', 'etag-1', 1234)
+		expect(wrapper.emitted('close')).toHaveLength(1)
 	})
 })

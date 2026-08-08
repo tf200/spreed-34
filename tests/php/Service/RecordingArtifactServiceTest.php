@@ -16,6 +16,8 @@ use OCA\Talk\Model\Attendee;
 use OCA\Talk\Model\RecordingArtifact;
 use OCA\Talk\Model\RecordingArtifactMapper;
 use OCA\Talk\Participant;
+use OCA\Talk\Recording\EuroOfficePdfConverter;
+use OCA\Talk\Recording\ProjectRecordingFolderProvider;
 use OCA\Talk\Room;
 use OCA\Talk\Service\AttachmentService;
 use OCA\Talk\Service\ConversationFolderService;
@@ -47,6 +49,8 @@ class RecordingArtifactServiceTest extends TestCase {
 	private AttachmentService&MockObject $attachmentService;
 	private IShareManager&MockObject $shareManager;
 	private ISystemTagObjectMapper&MockObject $systemTagMapper;
+	private EuroOfficePdfConverter&MockObject $pdfConverter;
+	private ProjectRecordingFolderProvider&MockObject $projectRecordingFolderProvider;
 	private LoggerInterface&MockObject $logger;
 	private RecordingArtifactService $service;
 	private \DateTime $now;
@@ -63,6 +67,8 @@ class RecordingArtifactServiceTest extends TestCase {
 		$this->attachmentService = $this->createMock(AttachmentService::class);
 		$this->shareManager = $this->createMock(IShareManager::class);
 		$this->systemTagMapper = $this->createMock(ISystemTagObjectMapper::class);
+		$this->pdfConverter = $this->createMock(EuroOfficePdfConverter::class);
+		$this->projectRecordingFolderProvider = $this->createMock(ProjectRecordingFolderProvider::class);
 		$this->logger = $this->createMock(LoggerInterface::class);
 		$this->now = new \DateTime('2026-07-14T21:00:00+00:00');
 		$this->timeFactory->method('getDateTime')->willReturn($this->now);
@@ -77,6 +83,8 @@ class RecordingArtifactServiceTest extends TestCase {
 			$this->attachmentService,
 			$this->shareManager,
 			$this->systemTagMapper,
+			$this->pdfConverter,
+			$this->projectRecordingFolderProvider,
 			$this->logger,
 		);
 	}
@@ -128,6 +136,27 @@ class RecordingArtifactServiceTest extends TestCase {
 		$this->assertSame('disk-etag', $result['etag']);
 		$this->assertSame('456', $result['publishedFileId']);
 		$this->assertSame('789', $result['publishedMessageId']);
+	}
+
+	public function testGetPublishedPdfWithoutDeletedSource(): void {
+		$artifact = $this->artifact();
+		$artifact->setState(RecordingArtifact::STATE_PUBLISHED);
+		$artifact->setSourceFileId(null);
+		$artifact->setPublishedFileId(456);
+		$artifact->setPublishedMessageId(789);
+		$this->mapper->method('findById')->with('123')->willReturn($artifact);
+		$publishedFile = $this->createMock(File::class);
+		$publishedFile->method('getName')->willReturn('recording.pdf');
+		$publishedFile->method('getEtag')->willReturn('pdf-etag');
+		$userFolder = $this->createMock(Folder::class);
+		$userFolder->method('getById')->with(456)->willReturn([$publishedFile]);
+		$this->rootFolder->method('getUserFolder')->with('owner')->willReturn($userFolder);
+
+		$result = $this->service->get($this->room(), $this->participant(), '123');
+
+		$this->assertSame('recording.pdf', $result['fileName']);
+		$this->assertSame('', $result['content']);
+		$this->assertSame('pdf-etag', $result['etag']);
 	}
 
 	public function testListFiltersUnresolvableArtifactsAndFormatsItems(): void {
@@ -204,14 +233,18 @@ class RecordingArtifactServiceTest extends TestCase {
 		$staged = $this->createMock(File::class);
 		$staged->method('getId')->willReturn(456);
 		$source->method('getName')->willReturn('recording.md');
-		$source->expects($this->once())->method('copy')->with('/draft/.recording-artifact-publication-123.md')->willReturn($staged);
+		$source->expects($this->once())->method('delete');
+		$this->pdfConverter->expects($this->once())->method('convert')->with($source, 'owner')->willReturn('%PDF-1.7 transcript');
+		$draft->expects($this->once())->method('newFile')->with(
+			$this->matchesRegularExpression('/^\.recording-artifact-publication-123-fcaec3a55087-[0-9a-f]{32}\.pdf$/'),
+			'%PDF-1.7 transcript',
+		)->willReturn($staged);
 		$publishedFile = $this->createMock(File::class);
 		$publishedFile->method('getId')->willReturn(456);
-		$publishedFile->method('getName')->willReturn('recording.md');
-		$publishedFile->method('getMimeType')->willReturn('text/markdown');
-		$publishedFile->method('getContent')->willReturn('transcript');
+		$publishedFile->method('getName')->willReturn('recording.pdf');
+		$publishedFile->method('getMimeType')->willReturn('application/pdf');
 		$publishedFile->method('getEtag')->willReturn('published-etag');
-		$this->conversationFolderService->method('finalizeUploadedFile')->with($target, $staged, 'recording.md')->willReturn(['node' => $publishedFile]);
+		$this->conversationFolderService->method('finalizeUploadedFile')->with($target, $staged, 'recording.pdf')->willReturn(['node' => $publishedFile]);
 		$tagException = new \RuntimeException('Tag creation is not permitted');
 		$this->systemTagMapper->expects($this->once())->method('assignGeneratedByAITag')->with('456', 'files')->willThrowException($tagException);
 		$this->logger->expects($this->once())->method('warning')->with('Failed to tag recording artifact as AI-generated', [
@@ -226,8 +259,9 @@ class RecordingArtifactServiceTest extends TestCase {
 			->with($this->anything(), $this->anything(), Attendee::ACTOR_USERS, 'owner', $this->stringContains('"fileId":"456"'), $this->now, true, 'recording-artifact-123')
 			->willReturn($comment);
 		$this->attachmentService->expects($this->once())->method('ensureAttachmentEntry')
-			->with($this->anything(), $comment, 'file_shared', ['metaData' => ['mimeType' => 'text/markdown'], 'fileId' => '456']);
+			->with($this->anything(), $comment, 'file_shared', ['metaData' => ['mimeType' => 'application/pdf'], 'fileId' => '456']);
 		$this->mapper->expects($this->once())->method('finishPublishing')->willReturn(true);
+		$this->mapper->expects($this->once())->method('clearSourceFile')->with('123', 11, $this->now)->willReturn(true);
 
 		$result = $this->service->publish($this->room(), $this->participant(), '123', 'etag');
 
@@ -254,22 +288,26 @@ class RecordingArtifactServiceTest extends TestCase {
 
 		$sourceFolder = $source->getParent();
 		$this->assertInstanceOf(Folder::class, $sourceFolder);
-		$sourceFolder->method('nodeExists')->with('.recording-artifact-publication-123.md')->willReturn(false);
+		$sourceFolder->method('nodeExists')->willReturn(false);
 		$sourceFolder->method('getPath')->willReturn('/recordings/room');
 		$source->method('getName')->willReturn('recording.md');
 		$staged = $this->createMock(File::class);
 		$staged->method('getId')->willReturn(456);
-		$source->expects($this->once())->method('copy')
-			->with('/recordings/room/.recording-artifact-publication-123.md')
+		$source->expects($this->once())->method('delete');
+		$this->pdfConverter->expects($this->once())->method('convert')->with($source, 'owner')->willReturn('%PDF-1.7 transcript');
+		$sourceFolder->expects($this->once())->method('newFile')
+			->with(
+				$this->matchesRegularExpression('/^\.recording-artifact-publication-123-fcaec3a55087-[0-9a-f]{32}\.pdf$/'),
+				'%PDF-1.7 transcript',
+			)
 			->willReturn($staged);
 		$publishedFile = $this->createMock(File::class);
 		$publishedFile->method('getId')->willReturn(456);
-		$publishedFile->method('getName')->willReturn('recording.md');
-		$publishedFile->method('getMimeType')->willReturn('text/markdown');
-		$publishedFile->method('getContent')->willReturn('transcript');
+		$publishedFile->method('getName')->willReturn('recording.pdf');
+		$publishedFile->method('getMimeType')->willReturn('application/pdf');
 		$publishedFile->method('getEtag')->willReturn('published-etag');
 		$this->conversationFolderService->expects($this->once())->method('finalizeUploadedFile')
-			->with($sourceFolder, $staged, 'recording.md')
+			->with($sourceFolder, $staged, 'recording.pdf')
 			->willReturn(['node' => $publishedFile]);
 
 		$share = $this->createMock(IShare::class);
@@ -307,8 +345,9 @@ class RecordingArtifactServiceTest extends TestCase {
 			), $this->now, true, 'recording-artifact-123')
 			->willReturn($comment);
 		$this->attachmentService->expects($this->once())->method('ensureAttachmentEntry')
-			->with($this->anything(), $comment, 'file_shared', ['metaData' => ['mimeType' => 'text/markdown'], 'share' => '321']);
+			->with($this->anything(), $comment, 'file_shared', ['metaData' => ['mimeType' => 'application/pdf'], 'share' => '321']);
 		$this->mapper->expects($this->once())->method('finishPublishing')->willReturn(true);
+		$this->mapper->expects($this->once())->method('clearSourceFile')->with('123', 11, $this->now)->willReturn(true);
 
 		$result = $this->service->publish($this->room(), $this->participant(), '123', 'etag');
 
@@ -318,12 +357,69 @@ class RecordingArtifactServiceTest extends TestCase {
 		$this->assertSame('789', $result['publishedMessageId']);
 	}
 
+	public function testPublishUsesProjectRecordingsFolderWithoutRoomShare(): void {
+		[$artifact, $source] = $this->resolvableArtifact('etag', 'etag', false);
+		$publishing = clone $artifact;
+		$publishing->setState(RecordingArtifact::STATE_PUBLISHING);
+		$withFile = clone $publishing;
+		$withFile->setPublishedFileId(456);
+		$published = clone $withFile;
+		$published->setPublishedMessageId(789);
+		$published->setState(RecordingArtifact::STATE_PUBLISHED);
+		$this->mapper->method('findById')->willReturnOnConsecutiveCalls($artifact, $publishing, $withFile, $published);
+		$this->mapper->method('claimForPublishing')->willReturn(true);
+		$this->config->method('isConversationSubfoldersEnabled')->willReturn(false);
+
+		$projectFolder = $this->createMock(Folder::class);
+		$projectFolder->method('nodeExists')->willReturn(false);
+		$this->projectRecordingFolderProvider->expects($this->once())->method('getFolder')
+			->with('room', 'owner')->willReturn($projectFolder);
+		$this->conversationFolderService->expects($this->never())->method('getOrCreateSubfolder');
+		$this->conversationFolderService->expects($this->never())->method('getOrCreateDraftFolder');
+
+		$source->method('getName')->willReturn('recording.md');
+		$source->expects($this->once())->method('delete');
+		$staged = $this->createMock(File::class);
+		$staged->method('getId')->willReturn(456);
+		$this->pdfConverter->method('convert')->with($source, 'owner')->willReturn('%PDF-1.7 transcript');
+		$projectFolder->expects($this->once())->method('newFile')
+			->with($this->matchesRegularExpression('/^\.recording-artifact-publication-123-.*\.pdf$/'), '%PDF-1.7 transcript')
+			->willReturn($staged);
+		$publishedFile = $this->createMock(File::class);
+		$publishedFile->method('getId')->willReturn(456);
+		$publishedFile->method('getName')->willReturn('recording.pdf');
+		$publishedFile->method('getMimeType')->willReturn('application/pdf');
+		$publishedFile->method('getEtag')->willReturn('published-etag');
+		$this->conversationFolderService->expects($this->once())->method('finalizeUploadedFile')
+			->with($projectFolder, $staged, 'recording.pdf')
+			->willReturn(['node' => $publishedFile]);
+
+		$this->shareManager->expects($this->never())->method('newShare');
+		$this->shareManager->expects($this->never())->method('createShare');
+		$this->mapper->expects($this->exactly(2))->method('updatePublication')->willReturn(true);
+		$this->mapper->method('findMessageIdByReference')->willReturn(null);
+		$comment = $this->createMock(IComment::class);
+		$comment->method('getId')->willReturn('789');
+		$this->chatManager->method('addSystemMessage')->willReturn($comment);
+		$this->attachmentService->expects($this->once())->method('ensureAttachmentEntry')
+			->with($this->anything(), $comment, 'file_shared', ['metaData' => ['mimeType' => 'application/pdf'], 'fileId' => '456']);
+		$this->mapper->method('finishPublishing')->willReturn(true);
+		$this->mapper->method('clearSourceFile')->willReturn(true);
+
+		$result = $this->service->publish($this->room(), $this->participant(), '123', 'etag');
+
+		$this->assertSame(RecordingArtifact::STATE_PUBLISHED, $result['state']);
+		$this->assertSame('recording.pdf', $result['fileName']);
+	}
+
 	public function testPublishRecoversPersistedFileAndExistingMessage(): void {
 		$artifact = $this->artifact();
 		$source = $this->createMock(File::class);
+		$source->method('getId')->willReturn(11);
 		$source->method('getEtag')->willReturn('etag');
 		$parent = $this->createMock(Folder::class);
 		$parent->method('getName')->willReturn('room');
+		$parent->method('getId')->willReturn(12);
 		$source->method('getParent')->willReturn($parent);
 		$artifact->setPublishedFileId(456);
 		$publishing = clone $artifact;
@@ -336,14 +432,18 @@ class RecordingArtifactServiceTest extends TestCase {
 		$this->config->method('isConversationSubfoldersEnabled')->willReturn(true);
 		$publishedFile = $this->createMock(File::class);
 		$publishedFile->method('getId')->willReturn(456);
-		$publishedFile->method('getName')->willReturn('recording.md');
-		$publishedFile->method('getMimeType')->willReturn('text/markdown');
-		$publishedFile->method('getContent')->willReturn('transcript');
+		$publishedFile->method('getName')->willReturn('recording.pdf');
+		$publishedFile->method('getMimeType')->willReturn('application/pdf');
 		$publishedFile->method('getEtag')->willReturn('published-etag');
+		$publishedParent = $this->createMock(Folder::class);
+		$publishedParent->method('getId')->willReturn(22);
+		$publishedFile->method('getParent')->willReturn($publishedParent);
 		$userFolder = $this->createMock(Folder::class);
 		$userFolder->method('getById')->willReturnCallback(fn (int $id) => $id === 11 ? [$source] : [$publishedFile]);
 		$this->rootFolder->method('getUserFolder')->willReturn($userFolder);
 		$this->conversationFolderService->expects($this->never())->method('finalizeUploadedFile');
+		$this->pdfConverter->expects($this->never())->method('convert');
+		$source->expects($this->once())->method('delete');
 		$this->mapper->method('findMessageIdByReference')->willReturn(789);
 		$comment = $this->createMock(IComment::class);
 		$comment->method('getId')->willReturn('789');
@@ -352,8 +452,103 @@ class RecordingArtifactServiceTest extends TestCase {
 		$this->attachmentService->expects($this->once())->method('ensureAttachmentEntry');
 		$this->mapper->expects($this->once())->method('updatePublication')->willReturn(true);
 		$this->mapper->expects($this->once())->method('finishPublishing')->willReturn(true);
+		$this->mapper->expects($this->once())->method('clearSourceFile')->with('123', 11, $this->now)->willReturn(true);
 
 		$this->assertSame('published', $this->service->publish($this->room(), $this->participant(), '123', 'etag')['state']);
+	}
+
+	public function testPublishReleasesClaimWhenPdfConversionFails(): void {
+		[$artifact, $source] = $this->resolvableArtifact('etag', 'etag', false);
+		$publishing = clone $artifact;
+		$publishing->setState(RecordingArtifact::STATE_PUBLISHING);
+		$this->mapper->method('findById')->willReturnOnConsecutiveCalls($artifact, $publishing);
+		$this->mapper->expects($this->once())->method('claimForPublishing')->willReturn(true);
+		$this->config->method('isConversationSubfoldersEnabled')->willReturn(true);
+		$target = $this->createMock(Folder::class);
+		$draft = $this->createMock(Folder::class);
+		$draft->method('nodeExists')->willReturn(false);
+		$this->conversationFolderService->method('getOrCreateSubfolder')->willReturn($target);
+		$this->conversationFolderService->method('getOrCreateDraftFolder')->willReturn($draft);
+		$this->pdfConverter->method('convert')->with($source, 'owner')->willThrowException(new \RuntimeException('offline'));
+		$this->mapper->expects($this->once())->method('releaseClaim')->with('123', $this->isType('string'), 'etag', $this->now);
+		$this->chatManager->expects($this->never())->method('addSystemMessage');
+
+		$this->expectExceptionMessage(RecordingArtifactException::CONVERSION);
+		$this->service->publish($this->room(), $this->participant(), '123', 'etag');
+	}
+
+	public function testPublishPreservesClaimWhenStagedFileWasPersisted(): void {
+		[$artifact, $source] = $this->resolvableArtifact('etag', 'etag', false);
+		$publishing = clone $artifact;
+		$publishing->setState(RecordingArtifact::STATE_PUBLISHING);
+		$persisted = clone $publishing;
+		$persisted->setPublishedFileId(456);
+		$this->mapper->method('findById')->willReturnOnConsecutiveCalls($artifact, $publishing, $persisted);
+		$this->mapper->expects($this->once())->method('claimForPublishing')->willReturn(true);
+		$this->config->method('isConversationSubfoldersEnabled')->willReturn(true);
+		$target = $this->createMock(Folder::class);
+		$draft = $this->createMock(Folder::class);
+		$draft->method('nodeExists')->willReturn(false);
+		$staged = $this->createMock(File::class);
+		$staged->method('getId')->willReturn(456);
+		$this->conversationFolderService->method('getOrCreateSubfolder')->willReturn($target);
+		$this->conversationFolderService->method('getOrCreateDraftFolder')->willReturn($draft);
+		$this->pdfConverter->method('convert')->with($source, 'owner')->willReturn('%PDF-1.7 transcript');
+		$draft->method('newFile')->willReturn($staged);
+		$this->mapper->expects($this->once())->method('updatePublication')->willReturn(false);
+		$this->mapper->expects($this->never())->method('releaseClaim');
+
+		$this->expectExceptionMessage(RecordingArtifactException::STORAGE);
+		$this->service->publish($this->room(), $this->participant(), '123', 'etag');
+	}
+
+	public function testPublishDeletesUnpersistedStagedPdfBeforeReleasingClaim(): void {
+		[$artifact, $source] = $this->resolvableArtifact('etag', 'etag', false);
+		$publishing = clone $artifact;
+		$publishing->setState(RecordingArtifact::STATE_PUBLISHING);
+		$this->mapper->method('findById')->willReturnOnConsecutiveCalls($artifact, $publishing, $publishing, $publishing);
+		$this->mapper->expects($this->once())->method('claimForPublishing')->willReturn(true);
+		$this->config->method('isConversationSubfoldersEnabled')->willReturn(true);
+		$target = $this->createMock(Folder::class);
+		$draft = $this->createMock(Folder::class);
+		$draft->method('nodeExists')->willReturn(false);
+		$staged = $this->createMock(File::class);
+		$staged->method('getId')->willReturn(456);
+		$staged->expects($this->once())->method('delete');
+		$this->conversationFolderService->method('getOrCreateSubfolder')->willReturn($target);
+		$this->conversationFolderService->method('getOrCreateDraftFolder')->willReturn($draft);
+		$this->pdfConverter->method('convert')->with($source, 'owner')->willReturn('%PDF-1.7 transcript');
+		$draft->method('newFile')->willReturn($staged);
+		$this->mapper->expects($this->once())->method('updatePublication')->willReturn(false);
+		$this->mapper->expects($this->once())->method('releaseClaim')->with('123', $this->isType('string'), 'etag', $this->now);
+
+		$this->expectExceptionMessage(RecordingArtifactException::STORAGE);
+		$this->service->publish($this->room(), $this->participant(), '123', 'etag');
+	}
+
+	public function testPublishRetriesSourceCleanupForPublishedPdf(): void {
+		$artifact = $this->artifact();
+		$artifact->setState(RecordingArtifact::STATE_PUBLISHED);
+		$artifact->setPublishedFileId(456);
+		$artifact->setPublishedMessageId(789);
+		$this->mapper->method('findById')->with('123')->willReturn($artifact);
+		$source = $this->createMock(File::class);
+		$source->method('getId')->willReturn(11);
+		$source->method('getContent')->willReturn('reviewed transcript');
+		$source->method('getEtag')->willReturn('etag');
+		$source->expects($this->once())->method('delete');
+		$publishedFile = $this->createMock(File::class);
+		$publishedFile->method('getName')->willReturn('recording.pdf');
+		$publishedFile->method('getEtag')->willReturn('pdf-etag');
+		$userFolder = $this->createMock(Folder::class);
+		$userFolder->method('getById')->willReturnCallback(fn (int $id) => $id === 11 ? [$source] : [$publishedFile]);
+		$this->rootFolder->method('getUserFolder')->with('owner')->willReturn($userFolder);
+		$this->mapper->expects($this->once())->method('clearSourceFile')->with('123', 11, $this->now)->willReturn(true);
+
+		$result = $this->service->publish($this->room(), $this->participant(), '123', 'etag');
+
+		$this->assertSame('recording.pdf', $result['fileName']);
+		$this->assertSame('reviewed transcript', $result['content']);
 	}
 
 	private function artifact(int $id = 123, string $owner = 'owner'): RecordingArtifact {
@@ -382,6 +577,7 @@ class RecordingArtifactServiceTest extends TestCase {
 
 	private function mockResolvedFile(string|array $etag): File&MockObject {
 		$file = $this->createMock(File::class);
+		$file->method('getId')->willReturn(11);
 		if (is_array($etag)) {
 			$file->method('getEtag')->willReturnOnConsecutiveCalls(...$etag);
 		} else {

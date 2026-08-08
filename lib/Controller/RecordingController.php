@@ -669,13 +669,14 @@ class RecordingController extends AEnvironmentAwareOCSController {
 	 * @param string $artifactId ID of the recording artifact
 	 * @param string $etag Expected file ETag
 	 * @param int $timestamp Timestamp of the notification to dismiss
-	 * @return DataResponse<Http::STATUS_OK, TalkRecordingArtifact, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT|Http::STATUS_INTERNAL_SERVER_ERROR|Http::STATUS_INSUFFICIENT_STORAGE, array{error: string}, array{}>
+	 * @return DataResponse<Http::STATUS_OK, TalkRecordingArtifact, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT|Http::STATUS_INTERNAL_SERVER_ERROR|Http::STATUS_SERVICE_UNAVAILABLE|Http::STATUS_INSUFFICIENT_STORAGE, array{error: string}, array{}>
 	 *
 	 * 200: Artifact published
 	 * 400: Artifact could not be published
 	 * 404: Artifact not found
 	 * 409: Artifact changed or is being processed
 	 * 500: Artifact could not be published
+	 * 503: Euro Office could not convert the artifact
 	 * 507: Artifact exceeds the owner's storage quota
 	 */
 	#[NoAdminRequired]
@@ -717,6 +718,7 @@ class RecordingController extends AEnvironmentAwareOCSController {
 			RecordingArtifactException::PUBLISHED => Http::STATUS_CONFLICT,
 			RecordingArtifactException::CONTENT => Http::STATUS_BAD_REQUEST,
 			RecordingArtifactException::CONTENT_TOO_LARGE => Http::STATUS_REQUEST_ENTITY_TOO_LARGE,
+			RecordingArtifactException::CONVERSION => Http::STATUS_SERVICE_UNAVAILABLE,
 			RecordingArtifactException::QUOTA => Http::STATUS_INSUFFICIENT_STORAGE,
 			default => Http::STATUS_INTERNAL_SERVER_ERROR,
 		};

@@ -126,6 +126,17 @@ class RecordingArtifactMapper extends QBMapper {
 		return $query->executeStatement() === 1;
 	}
 
+	public function clearSourceFile(string $id, int $sourceFileId, \DateTime $updatedAt): bool {
+		$query = $this->db->getQueryBuilder();
+		$query->update($this->getTableName())
+			->set('source_file_id', $query->createNamedParameter(null, IQueryBuilder::PARAM_NULL))
+			->set('updated_at', $query->createNamedParameter($updatedAt, IQueryBuilder::PARAM_DATETIME_MUTABLE))
+			->where($query->expr()->eq('id', $query->createNamedParameter($id)))
+			->andWhere($query->expr()->eq('state', $query->createNamedParameter(RecordingArtifact::STATE_PUBLISHED)))
+			->andWhere($query->expr()->eq('source_file_id', $query->createNamedParameter($sourceFileId, IQueryBuilder::PARAM_INT)));
+		return $query->executeStatement() === 1;
+	}
+
 	public function releaseClaim(string $id, string $claimToken, string $etag, \DateTime $updatedAt): void {
 		$query = $this->db->getQueryBuilder();
 		$query->update($this->getTableName())

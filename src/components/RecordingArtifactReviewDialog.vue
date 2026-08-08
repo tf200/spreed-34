@@ -43,7 +43,7 @@ const isSaving = ref(false)
 const isPublishing = ref(false)
 const hasConflict = ref(false)
 const loadError = ref(false)
-const operationError = ref<'save' | 'publish' | null>(null)
+const operationError = ref<'save' | 'publish' | 'conversion' | null>(null)
 const conflictReason = ref<'stale_revision' | 'editing' | 'publishing' | 'published' | null>(null)
 const editorElement = ref<HTMLElement | null>(null)
 const textEditorAvailable = ref(!!window.OCA.Text?.createEditor)
@@ -55,6 +55,7 @@ const isBusy = computed(() => isLoading.value || isSaving.value || isPublishing.
 const isDirty = computed(() => content.value !== savedContent.value)
 const isPublished = computed(() => artifact.value?.state === 'published')
 const isDraft = computed(() => artifact.value?.state === 'draft')
+const isPublishingState = computed(() => artifact.value?.state === 'publishing')
 const title = computed(() => artifact.value?.type === 'summary'
 	? t('spreed', 'Review call summary')
 	: t('spreed', 'Review transcript'))
@@ -170,7 +171,7 @@ async function save() {
 
 /** Save pending changes and publish a detached snapshot to chat. */
 async function publish() {
-	if (!artifact.value || !isDraft.value || !props.canPublish || isBusy.value || hasConflict.value) {
+	if (!artifact.value || (!isDraft.value && !isPublishingState.value) || !props.canPublish || isBusy.value || hasConflict.value) {
 		return
 	}
 	if (isDirty.value) {
@@ -181,11 +182,11 @@ async function publish() {
 	}
 
 	const confirmed = await spawnDialog(ConfirmDialog, {
-		name: t('spreed', 'Publish reviewed text?'),
-		message: t('spreed', 'A snapshot will be shared with everyone in this conversation. Later draft edits will not change it.'),
+		name: t('spreed', 'Publish reviewed text as PDF?'),
+		message: t('spreed', 'The reviewed text will be converted to PDF and shared with everyone in this conversation.'),
 		buttons: [
 			{ label: t('spreed', 'Cancel') },
-			{ label: t('spreed', 'Publish to chat'), variant: 'primary', callback: () => true },
+			{ label: t('spreed', 'Publish PDF to chat'), variant: 'primary', callback: () => true },
 		],
 	})
 	if (!confirmed || !artifact.value) {
@@ -195,16 +196,15 @@ async function publish() {
 	isPublishing.value = true
 	operationError.value = null
 	try {
-		const response = await publishRecordingArtifact(props.token, props.artifactId, artifact.value.etag, props.notificationTimestamp)
-		artifact.value = response.data.ocs.data
-		content.value = response.data.ocs.data.content
-		savedContent.value = response.data.ocs.data.content
-		await nextTick()
-		await setupTextEditor()
-		showSuccess(t('spreed', 'Reviewed text published to the conversation'))
+		await publishRecordingArtifact(props.token, props.artifactId, artifact.value.etag, props.notificationTimestamp)
+		showSuccess(t('spreed', 'Reviewed text published to the conversation as a PDF'))
+		emit('close')
 	} catch (error: unknown) {
 		if (setConflict(error)) {
 			showError(conflictMessage.value)
+		} else if (isAxiosError(error) && error.response?.status === 503) {
+			operationError.value = 'conversion'
+			showError(t('spreed', 'Euro Office could not create the PDF. Check that it is available and try again.'))
 		} else {
 			operationError.value = 'publish'
 			showError(t('spreed', 'Could not publish the recording text'))
@@ -225,6 +225,16 @@ const conflictMessage = computed(() => {
 		return t('spreed', 'This recording text has already been published. Reload the published version.')
 	}
 	return t('spreed', 'This text changed elsewhere. Reload it before continuing.')
+})
+
+const operationErrorMessage = computed(() => {
+	if (operationError.value === 'save') {
+		return t('spreed', 'Could not save the recording text')
+	}
+	if (operationError.value === 'conversion') {
+		return t('spreed', 'Euro Office could not create the PDF')
+	}
+	return t('spreed', 'Could not publish the recording text')
 })
 
 /**
@@ -321,20 +331,27 @@ async function close(open = false) {
 				</NcButton>
 			</div>
 			<div v-else-if="!isDraft" class="recording-artifact-review__status" role="status">
-				<span v-if="isPublished">{{ t('spreed', 'Published') }}</span>
+				<span v-if="isPublished">{{ t('spreed', 'Published as {fileName}', { fileName: artifact.fileName }) }}</span>
 				<span v-else-if="artifact.state === 'editing'">{{ t('spreed', 'This recording text is being edited. Editing is temporarily unavailable.') }}</span>
 				<span v-else>{{ t('spreed', 'This recording text is being published.') }}</span>
-				<NcButton v-if="!isPublished" variant="secondary" @click="loadArtifact">
+				<NcButton v-if="artifact.state === 'editing'" variant="secondary" @click="loadArtifact">
 					{{ t('spreed', 'Check again') }}
+				</NcButton>
+				<NcButton
+					v-else-if="isPublishingState"
+					variant="secondary"
+					:disabled="isBusy || !canPublish"
+					@click="publish">
+					{{ t('spreed', 'Retry publication') }}
 				</NcButton>
 			</div>
 			<div v-if="operationError" class="recording-artifact-review__error" role="alert">
-				<span>{{ operationError === 'save' ? t('spreed', 'Could not save the recording text') : t('spreed', 'Could not publish the recording text') }}</span>
+				<span>{{ operationErrorMessage }}</span>
 				<NcButton @click="operationError === 'save' ? save() : publish()">
 					{{ t('spreed', 'Retry') }}
 				</NcButton>
 			</div>
-			<div class="recording-artifact-review__editor" dir="auto">
+			<div v-if="!isPublished" class="recording-artifact-review__editor" dir="auto">
 				<div v-if="textEditorAvailable" ref="editorElement" class="recording-artifact-review__text-editor" />
 				<NcTextArea
 					v-else

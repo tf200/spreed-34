@@ -17,6 +17,7 @@ class RecordingArtifactException extends \RuntimeException {
 	public const PUBLISHED = 'published';
 	public const CONTENT = 'content';
 	public const CONTENT_TOO_LARGE = 'content_too_large';
+	public const CONVERSION = 'conversion';
 	public const QUOTA = 'quota';
 	public const STORAGE = 'storage';
 

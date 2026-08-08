@@ -10114,6 +10114,22 @@ export interface operations {
                     };
                 };
             };
+            /** @description Euro Office could not convert the artifact */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
             /** @description Artifact exceeds the owner's storage quota */
             507: {
                 headers: {

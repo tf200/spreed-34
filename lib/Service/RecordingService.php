@@ -543,6 +543,7 @@ class RecordingService {
 			}
 
 			try {
+				$fileNode = null;
 				$artifact = $this->recordingArtifactService->findExisting($recordingFileId, $aiTask);
 				if ($artifact === null) {
 					$tempName = '.recording-artifact-source-' . $this->secureRandom->generate(16) . '.md';
@@ -567,7 +568,8 @@ class RecordingService {
 						$this->assignGeneratedByAiTag($fileNode);
 					}
 				} else {
-					$sourceNodes = $recordingFolder->getById($artifact->getSourceFileId());
+					$sourceFileId = $artifact->getSourceFileId();
+					$sourceNodes = $sourceFileId === null ? [] : $recordingFolder->getById($sourceFileId);
 					$fileNode = array_pop($sourceNodes);
 					if ($fileNode instanceof File) {
 						if (str_starts_with($fileNode->getName(), '.recording-artifact-source-')) {
