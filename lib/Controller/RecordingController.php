@@ -359,6 +359,7 @@ class RecordingController extends AEnvironmentAwareOCSController {
 	 *
 	 * @param int $status Type of the recording
 	 * @psalm-param Room::RECORDING_* $status
+	 * @param ?string $summaryTemplateId Summary template owned by the moderator, or null for the built-in default
 	 * @return DataResponse<Http::STATUS_OK, null, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, array{error: string}, array{}>
 	 *
 	 * 200: Recording started successfully
@@ -370,9 +371,9 @@ class RecordingController extends AEnvironmentAwareOCSController {
 		'apiVersion' => '(v1)',
 		'token' => '[a-z0-9]{4,30}',
 	])]
-	public function start(int $status): DataResponse {
+	public function start(int $status, ?string $summaryTemplateId = null): DataResponse {
 		try {
-			$this->recordingService->start($this->room, $status, $this->userId, $this->participant);
+			$this->recordingService->start($this->room, $status, $this->userId, $this->participant, $summaryTemplateId);
 		} catch (InvalidArgumentException $e) {
 			return new DataResponse(['error' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
 		}

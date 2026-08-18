@@ -147,6 +147,7 @@
 import { emit } from '@nextcloud/event-bus'
 import { t } from '@nextcloud/l10n'
 import { generateOcsUrl } from '@nextcloud/router'
+import { spawnDialog } from '@nextcloud/vue/functions/dialog'
 import NcActionButton from '@nextcloud/vue/components/NcActionButton'
 import NcActionLink from '@nextcloud/vue/components/NcActionLink'
 import NcActions from '@nextcloud/vue/components/NcActions'
@@ -161,6 +162,7 @@ import IconFullscreen from 'vue-material-design-icons/Fullscreen.vue'
 import IconFullscreenExit from 'vue-material-design-icons/FullscreenExit.vue'
 import IconStop from 'vue-material-design-icons/Stop.vue'
 import IconVideoOutline from 'vue-material-design-icons/VideoOutline.vue'
+import RecordingSummaryTemplateDialog from '../RecordingSummaryTemplateDialog.vue'
 import IconFileDownload from '../../../img/material-icons/file-download.svg?raw'
 import IconMicrophoneOffOutline from '../../../img/material-icons/microphone-off-outline.svg?raw'
 import IconScreenRecordOutline from '../../../img/material-icons/screen-record-outline.svg?raw'
@@ -322,10 +324,15 @@ export default {
 			emit('show-conversation-settings', { token: this.token })
 		},
 
-		startRecording() {
+		async startRecording() {
+			const summaryTemplateId = await spawnDialog(RecordingSummaryTemplateDialog)
+			if (summaryTemplateId === undefined) {
+				return
+			}
 			this.$store.dispatch('startCallRecording', {
 				token: this.token,
 				callRecording: CALL.RECORDING.VIDEO,
+				summaryTemplateId,
 			})
 		},
 

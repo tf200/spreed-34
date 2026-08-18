@@ -66,6 +66,13 @@
 		</NcAppSettingsSection>
 
 		<NcAppSettingsSection
+			v-if="!isGuest && isRecordingEnabled"
+			id="recording_summary_templates"
+			:name="t('spreed', 'Recording summaries')">
+			<RecordingSummaryTemplatesSettings />
+		</NcAppSettingsSection>
+
+		<NcAppSettingsSection
 			v-if="!isGuest"
 			id="privacy"
 			:name="t('spreed', 'Privacy')">
@@ -165,6 +172,7 @@ import IconTune from 'vue-material-design-icons/Tune.vue'
 import AdvancedAudioDialog from '../MediaSettings/AdvancedAudioDialog.vue'
 import AppearanceSettings from './AppearanceSettings.vue'
 import LiveTranscriptionTargetLanguageSelect from './LiveTranscriptionTargetLanguageSelect.vue'
+import RecordingSummaryTemplatesSettings from './RecordingSummaryTemplatesSettings.vue'
 import { CHAT_STYLE, CONVERSATION, PRIVACY } from '../../constants.ts'
 import { getTalkConfig } from '../../services/CapabilitiesManager.ts'
 import { useCustomSettings } from '../../services/SettingsAPI.ts'
@@ -175,6 +183,7 @@ const disableKeyboardShortcuts = OCP.Accessibility.disableKeyboardShortcuts()
 
 const supportTypingStatus = getTalkConfig('local', 'chat', 'typing-privacy') !== undefined
 const isCallEnabled = getTalkConfig('local', 'call', 'enabled')
+const isRecordingEnabled = !!getTalkConfig('local', 'call', 'recording')
 const supportStartWithoutMedia = getTalkConfig('local', 'call', 'start-without-media') !== undefined
 const supportDefaultBlurVirtualBackground = getTalkConfig('local', 'call', 'blur-virtual-background') !== undefined
 const supportLiveTranslation = getTalkConfig('local', 'call', 'live-translation') === true
@@ -188,6 +197,7 @@ export default {
 		IconMicrophoneOutline,
 		AppearanceSettings,
 		LiveTranscriptionTargetLanguageSelect,
+		RecordingSummaryTemplatesSettings,
 		NcAppSettingsDialog,
 		NcAppSettingsSection,
 		NcButton,
@@ -211,6 +221,7 @@ export default {
 			supportTypingStatus,
 			customSettingsSections,
 			isCallEnabled,
+			isRecordingEnabled,
 			supportStartWithoutMedia,
 			supportDefaultBlurVirtualBackground,
 			supportLiveTranslation,

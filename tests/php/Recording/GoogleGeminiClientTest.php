@@ -35,12 +35,15 @@ class GoogleGeminiClientTest extends TestCase {
 		$client = $this->createMock(IClient::class);
 		$client->expects($this->once())->method('post')->with(
 			'https://aiplatform.googleapis.com/v1/projects/valid-project/locations/global/publishers/google/models/gemini-2.5-flash-lite:generateContent',
-			$this->callback(fn (array $options): bool => $options['json']['generationConfig']['maxOutputTokens'] === 1024),
+			$this->callback(fn (array $options): bool => $options['json']['generationConfig']['maxOutputTokens'] === 1024
+				&& str_contains($options['json']['systemInstruction']['parts'][0]['text'], 'untrusted data')
+				&& str_contains($options['json']['contents'][0]['parts'][0]['text'], "SUMMARY TEMPLATE:\nFocus on decisions")
+				&& str_contains($options['json']['contents'][0]['parts'][0]['text'], "<transcript>\nTranscript\n</transcript>")),
 		)->willReturn($response);
 		$clientService = $this->createMock(IClientService::class);
 		$clientService->method('newClient')->willReturn($client);
 
-		$this->assertSame("## Overview\nShort summary", (new GoogleGeminiClient($config, $token, $clientService))->summarize('Transcript'));
+		$this->assertSame("## Overview\nShort summary", (new GoogleGeminiClient($config, $token, $clientService))->summarize('Transcript', 'Focus on decisions'));
 	}
 
 	public function testStandardizesTranscriptWithStrictInstructionsAndPreservedFormat(): void {
@@ -93,6 +96,6 @@ class GoogleGeminiClientTest extends TestCase {
 		$this->expectException(GoogleApiException::class);
 		$this->expectExceptionMessage('Gemini summary request failed (HTTP 429): Quota exceeded for generate requests');
 
-		(new GoogleGeminiClient($config, $token, $clientService))->summarize('Transcript');
+		(new GoogleGeminiClient($config, $token, $clientService))->summarize('Transcript', 'Summarize briefly');
 	}
 }

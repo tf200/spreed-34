@@ -17,6 +17,7 @@ use OCA\Talk\Recording\GoogleSpeechClient;
 use OCA\Talk\Recording\RecordingAiProcessor;
 use OCA\Talk\Recording\RecordingAiTranscriptService;
 use OCA\Talk\Service\RecordingService;
+use OCA\Talk\Service\RecordingSummaryTemplateService;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\Files\File;
 use OCP\Files\Folder;
@@ -37,6 +38,7 @@ class RecordingAiProcessorTest extends TestCase {
 	private GoogleGeminiClient&MockObject $gemini;
 	private RecordingService&MockObject $recordingService;
 	private IConfig&MockObject $serverConfig;
+	private RecordingSummaryTemplateService&MockObject $recordingSummaryTemplateService;
 	private RecordingAiProcessor $processor;
 
 	protected function setUp(): void {
@@ -55,6 +57,10 @@ class RecordingAiProcessorTest extends TestCase {
 		$this->recordingService = $this->createMock(RecordingService::class);
 		$this->serverConfig = $this->createMock(IConfig::class);
 		$this->serverConfig->method('getAppValue')->willReturn('yes');
+		$this->recordingSummaryTemplateService = $this->createMock(RecordingSummaryTemplateService::class);
+		$this->recordingSummaryTemplateService->method('findSnapshot')->willReturn([
+			'id' => '7', 'name' => 'Executive', 'instructions' => 'Focus on risks and decisions.',
+		]);
 		$this->processor = new RecordingAiProcessor(
 			$this->mapper,
 			$this->rootFolder,
@@ -65,6 +71,7 @@ class RecordingAiProcessorTest extends TestCase {
 			$this->gemini,
 			$this->recordingService,
 			$this->serverConfig,
+			$this->recordingSummaryTemplateService,
 		);
 	}
 
@@ -164,7 +171,7 @@ class RecordingAiProcessorTest extends TestCase {
 		$this->transcriptService->expects($this->once())->method('normalize')->with($operation)->willReturn('Raw meeting transcript');
 		$this->gemini->expects($this->once())->method('standardizeTranscript')->with('Raw meeting transcript')->willReturn('Clean meeting transcript');
 		$this->transcriptService->expects($this->once())->method('store')->with($operation, 'Clean meeting transcript');
-		$this->gemini->expects($this->once())->method('summarize')->with('Clean meeting transcript')->willReturn('Meeting summary');
+		$this->gemini->expects($this->once())->method('summarize')->with('Clean meeting transcript', 'Focus on risks and decisions.')->willReturn('Meeting summary');
 		$this->recordingService->expects($this->once())->method('storeTranscript')
 			->with('owner', 'room', 123, 'Meeting summary', 'summary', false);
 		$states = [];
@@ -203,6 +210,7 @@ class RecordingAiProcessorTest extends TestCase {
 			$this->gemini,
 			$this->recordingService,
 			$this->serverConfig,
+			$this->recordingSummaryTemplateService,
 		);
 		$this->transcriptService->expects($this->once())->method('normalize')->willReturn('Raw meeting transcript');
 		$this->gemini->expects($this->once())->method('standardizeTranscript')->with('Raw meeting transcript')->willReturn('Clean meeting transcript');

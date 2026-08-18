@@ -12,6 +12,7 @@ namespace OCA\Talk\Recording;
 use OCA\Talk\Model\RecordingAiOperation;
 use OCA\Talk\Model\RecordingAiOperationMapper;
 use OCA\Talk\Service\RecordingService;
+use OCA\Talk\Service\RecordingSummaryTemplateService;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\Files\File;
@@ -33,6 +34,7 @@ class RecordingAiProcessor {
 		private readonly GoogleGeminiClient $gemini,
 		private readonly RecordingService $recordingService,
 		private readonly IConfig $serverConfig,
+		private readonly RecordingSummaryTemplateService $recordingSummaryTemplateService,
 	) {
 	}
 
@@ -213,7 +215,8 @@ class RecordingAiProcessor {
 		}
 
 		try {
-			$summary = $this->gemini->summarize($operation->getTranscript());
+			$snapshot = $this->recordingSummaryTemplateService->findSnapshot($operation->getRecordingFileId());
+			$summary = $this->gemini->summarize($operation->getTranscript(), $snapshot['instructions']);
 			$this->recordingService->storeTranscript(
 				$operation->getOwnerId(),
 				$operation->getRoomToken(),

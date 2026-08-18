@@ -12,6 +12,8 @@ use OCA\Talk\Federation\FederationManager;
 use OCA\Talk\Manager;
 use OCA\Talk\Model\Attendee;
 use OCA\Talk\Model\RecordingArtifactMapper;
+use OCA\Talk\Model\RecordingSummaryMapper;
+use OCA\Talk\Model\RecordingSummaryTemplateMapper;
 use OCA\Talk\Service\ConsentService;
 use OCA\Talk\Service\ConversationTagService;
 use OCA\Talk\Service\PhoneService;
@@ -37,6 +39,8 @@ class UserDeletedListener implements IEventListener {
 		private readonly ReminderService $reminderService,
 		private readonly FederationManager $federationManager,
 		private readonly RecordingArtifactMapper $recordingArtifactMapper,
+		private readonly RecordingSummaryMapper $recordingSummaryMapper,
+		private readonly RecordingSummaryTemplateMapper $recordingSummaryTemplateMapper,
 	) {
 	}
 
@@ -58,5 +62,7 @@ class UserDeletedListener implements IEventListener {
 		$this->reminderService->deleteAllRemindersForUser($user->getUID());
 		$this->federationManager->deleteInvitationsForUser($user->getUID());
 		$this->recordingArtifactMapper->deleteByOwner($user->getUID());
+		$this->recordingSummaryMapper->deleteByOwner($user->getUID());
+		$this->recordingSummaryTemplateMapper->deleteByOwner($user->getUID());
 	}
 }

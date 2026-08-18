@@ -21,12 +21,14 @@ async function getWelcomeMessage(serverId) {
  *
  * @param {string} token conversation token
  * @param {number} callRecording the type of the recording being started (@see constants CALL.RECORDING.*)
+ * @param {string|null} summaryTemplateId summary template ID, or null for the built-in default
  */
-async function startCallRecording(token, callRecording) {
+async function startCallRecording(token, callRecording, summaryTemplateId) {
 	await axios.post(
 		generateOcsUrl('apps/spreed/api/v1/recording/{token}', { token }),
 		{
 			status: callRecording,
+			...(summaryTemplateId !== null && summaryTemplateId !== undefined ? { summaryTemplateId } : {}),
 		},
 	)
 }

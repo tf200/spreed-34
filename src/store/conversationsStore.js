@@ -1297,9 +1297,9 @@ const actions = {
 		}
 	},
 
-	async startCallRecording(context, { token, callRecording }) {
+	async startCallRecording(context, { token, callRecording, summaryTemplateId }) {
 		try {
-			await startCallRecording(token, callRecording)
+			await startCallRecording(token, callRecording, summaryTemplateId)
 		} catch (e) {
 			console.error(e)
 		}

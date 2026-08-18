@@ -45,6 +45,15 @@ namespace OCA\Talk;
  *     notificationTimestamp: int,
  * }
  *
+ * @psalm-type TalkRecordingSummaryTemplate = array{
+ *     id: numeric-string,
+ *     ownerId: string,
+ *     name: string,
+ *     instructions: string,
+ *     createdAt: int,
+ *     updatedAt: int,
+ * }
+ *
  * @psalm-type TalkBan = array{
  *     // Identifier of the ban
  *     id: int,

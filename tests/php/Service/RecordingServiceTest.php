@@ -29,6 +29,7 @@ use OCA\Talk\Room;
 use OCA\Talk\Service\ParticipantService;
 use OCA\Talk\Service\RecordingArtifactService;
 use OCA\Talk\Service\RecordingService;
+use OCA\Talk\Service\RecordingSummaryTemplateService;
 use OCA\Talk\Service\RoomService;
 use OCP\AppFramework\Services\IAppConfig;
 use OCP\AppFramework\Utility\ITimeFactory;
@@ -78,6 +79,7 @@ class RecordingServiceTest extends TestCase {
 	protected RecordingService $recordingService;
 	protected RecordingAiService&MockObject $recordingAiService;
 	protected RecordingArtifactService&MockObject $recordingArtifactService;
+	protected RecordingSummaryTemplateService&MockObject $recordingSummaryTemplateService;
 
 	public function setUp(): void {
 		parent::setUp();
@@ -104,6 +106,12 @@ class RecordingServiceTest extends TestCase {
 		$this->secureRandom = $this->createMock(ISecureRandom::class);
 		$this->recordingAiService = $this->createMock(RecordingAiService::class);
 		$this->recordingArtifactService = $this->createMock(RecordingArtifactService::class);
+		$this->recordingSummaryTemplateService = $this->createMock(RecordingSummaryTemplateService::class);
+		$this->recordingSummaryTemplateService->method('snapshot')->willReturn([
+			'id' => null,
+			'name' => RecordingSummaryTemplateService::DEFAULT_NAME,
+			'instructions' => RecordingSummaryTemplateService::DEFAULT_INSTRUCTIONS,
+		]);
 
 		$this->recordingService = new RecordingService(
 			$this->mimeTypeDetector,
@@ -128,6 +136,7 @@ class RecordingServiceTest extends TestCase {
 			$this->secureRandom,
 			$this->recordingAiService,
 			$this->recordingArtifactService,
+			$this->recordingSummaryTemplateService,
 		);
 	}
 
@@ -357,15 +366,21 @@ class RecordingServiceTest extends TestCase {
 		$this->shareManager->method('newShare')->willReturn($share);
 		$this->shareManager->expects($this->once())->method('createShare')->with($share)->willReturn($share);
 
-		$this->appConfig->expects($this->once())
+		$this->appConfig->expects($this->exactly(2))
 			->method('setAppValueString')
-			->with(RecordingService::APPCONFIG_UPLOAD_PREFIX . 'token123/' . sha1('recording.mp4'), 'shareToken', true, true);
+			->with($this->logicalOr(
+				RecordingService::APPCONFIG_UPLOAD_PREFIX . 'token123/' . sha1('recording.mp4'),
+				RecordingService::APPCONFIG_UPLOAD_SUMMARY_PREFIX . 'token123/' . sha1('recording.mp4'),
+			), $this->anything(), true, true);
 
 		// The active-recording marker is cleared once the upload share is created,
 		// so a new recording can start while this one is still being uploaded.
-		$this->appConfig->expects($this->once())
+		$this->appConfig->expects($this->exactly(2))
 			->method('deleteAppValue')
-			->with(RecordingService::APPCONFIG_PREFIX . 'token123');
+			->with($this->logicalOr(
+				RecordingService::APPCONFIG_PREFIX . 'token123',
+				RecordingService::APPCONFIG_SUMMARY_PREFIX . 'token123',
+			));
 
 		$result = $this->recordingService->requestUpload($room, $owner, 'recording.mp4');
 
@@ -436,8 +451,11 @@ class RecordingServiceTest extends TestCase {
 		$this->shareManager->expects($this->once())->method('deleteShare')->with($share);
 		// Only the temporary upload share's tracking value is cleared here; the
 		// active-recording marker was already removed in requestUpload().
-		$this->appConfig->expects($this->once())->method('deleteAppValue')
-			->with(RecordingService::APPCONFIG_UPLOAD_PREFIX . 'token123/' . sha1('name.ogg'));
+		$this->appConfig->expects($this->exactly(2))->method('deleteAppValue')
+			->with($this->logicalOr(
+				RecordingService::APPCONFIG_UPLOAD_PREFIX . 'token123/' . sha1('name.ogg'),
+				RecordingService::APPCONFIG_UPLOAD_SUMMARY_PREFIX . 'token123/' . sha1('name.ogg'),
+			));
 
 		$this->notificationManager->expects($this->once())->method('notify');
 
