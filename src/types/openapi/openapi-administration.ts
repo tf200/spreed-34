@@ -1168,6 +1168,13 @@ export interface operations {
                      * @default false
                      */
                     removeServiceAccount?: boolean;
+                    /**
+                     * @description Whether to transcribe recordings per participant track
+                     * @default false
+                     */
+                    multitrackEnabled?: boolean;
+                    /** @description Gemini Transcribe model to transcribe participant tracks */
+                    transcriptionModel?: string;
                 };
             };
         };

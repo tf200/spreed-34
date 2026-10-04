@@ -12,6 +12,7 @@ use OCA\Talk\Config;
 use OCA\Talk\Exceptions\WrongPermissionsException;
 use OCA\Talk\MatterbridgeManager;
 use OCA\Talk\Participant;
+use OCA\Talk\Recording\GoogleAiConfig;
 use OCA\Talk\Room;
 use OCP\AppFramework\Http\TemplateResponse;
 use OCP\AppFramework\Services\IAppConfig;
@@ -456,11 +457,13 @@ class AdminSettings implements ISettings {
 			'project' => $this->appConfig->getAppValueString('recording_google_project'),
 			'location' => $this->appConfig->getAppValueString('recording_google_location', 'eu'),
 			'bucket' => $this->appConfig->getAppValueString('recording_google_bucket'),
-			'language' => $this->appConfig->getAppValueString('recording_google_language', 'en-US'),
+			'language' => $this->appConfig->getAppValueString('recording_google_language', 'auto'),
 			'speechModel' => $this->appConfig->getAppValueString('recording_google_speech_model', 'chirp_3'),
 			'geminiLocation' => $this->appConfig->getAppValueString('recording_google_gemini_location', 'global'),
 			'geminiModel' => $this->appConfig->getAppValueString('recording_google_gemini_model', 'gemini-2.5-flash-lite'),
 			'serviceAccountConfigured' => $this->appConfig->getAppValueString('recording_google_service_account', lazy: true) !== '',
+			'multitrackEnabled' => $this->appConfig->getAppValueBool('recording_google_multitrack_enabled'),
+			'transcriptionModel' => $this->appConfig->getAppValueString('recording_google_transcription_model', GoogleAiConfig::DEFAULT_TRANSCRIPTION_MODEL),
 		]);
 	}
 

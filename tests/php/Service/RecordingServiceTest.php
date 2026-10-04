@@ -20,10 +20,12 @@ namespace OCA\Talk\Tests\php\Service;
 
 use OCA\Talk\Chat\ChatManager;
 use OCA\Talk\Config;
+use OCA\Talk\Exceptions\ParticipantNotFoundException;
 use OCA\Talk\Manager;
 use OCA\Talk\Model\Attendee;
 use OCA\Talk\Participant;
 use OCA\Talk\Recording\BackendNotifier;
+use OCA\Talk\Recording\ParticipantTracksStore;
 use OCA\Talk\Recording\RecordingAiService;
 use OCA\Talk\Room;
 use OCA\Talk\Service\ParticipantService;
@@ -80,6 +82,7 @@ class RecordingServiceTest extends TestCase {
 	protected RecordingAiService&MockObject $recordingAiService;
 	protected RecordingArtifactService&MockObject $recordingArtifactService;
 	protected RecordingSummaryTemplateService&MockObject $recordingSummaryTemplateService;
+	protected ParticipantTracksStore&MockObject $participantTracksStore;
 
 	public function setUp(): void {
 		parent::setUp();
@@ -107,6 +110,7 @@ class RecordingServiceTest extends TestCase {
 		$this->recordingAiService = $this->createMock(RecordingAiService::class);
 		$this->recordingArtifactService = $this->createMock(RecordingArtifactService::class);
 		$this->recordingSummaryTemplateService = $this->createMock(RecordingSummaryTemplateService::class);
+		$this->participantTracksStore = $this->createMock(ParticipantTracksStore::class);
 		$this->recordingSummaryTemplateService->method('snapshot')->willReturn([
 			'id' => null,
 			'name' => RecordingSummaryTemplateService::DEFAULT_NAME,
@@ -137,6 +141,7 @@ class RecordingServiceTest extends TestCase {
 			$this->recordingAiService,
 			$this->recordingArtifactService,
 			$this->recordingSummaryTemplateService,
+			$this->participantTracksStore,
 		);
 	}
 
@@ -460,6 +465,43 @@ class RecordingServiceTest extends TestCase {
 		$this->notificationManager->expects($this->once())->method('notify');
 
 		$this->recordingService->finishUpload($room, $owner, 'name.ogg');
+	}
+
+	public function testFinishUploadStoresNamesOfParticipantTracks(): void {
+		$owner = 'user1';
+		$room = $this->createRoom();
+		$participant = $this->createParticipant($room, $owner);
+		$this->participantService->method('getParticipant')->with($room, $owner)->willReturn($participant);
+
+		$recordingFolder = $this->mockRecordingFolder($owner, 'token123');
+		$file = $this->createMock(File::class);
+		$file->method('getName')->willReturn('name.ogg');
+		$file->method('getMimeType')->willReturn('audio/ogg');
+		$file->method('getSize')->willReturn(1024);
+		$file->method('getId')->willReturn(42);
+		$recordingFolder->method('get')->with('name.ogg')->willReturn($file);
+		$this->mockNotification();
+		$this->serverConfig->method('getAppValue')->willReturn('no');
+		$this->appConfig->method('getAppValueString')->willReturn('');
+
+		$tracks = ['error' => UPLOAD_ERR_OK, 'tmp_name' => '/tmp/tracks.zip'];
+		$this->participantTracksStore->expects($this->once())->method('storeUploadedArchive')->with(42, $tracks);
+		$this->participantTracksStore->method('getManifest')->with(42)->willReturn(['segments' => [
+			['id' => '1', 'actorType' => 'guests', 'actorId' => 'abc', 'displayName' => null],
+			['id' => '2', 'actorType' => 'guests', 'actorId' => 'gone', 'displayName' => null],
+			['id' => '3', 'actorType' => null, 'actorId' => null, 'displayName' => null],
+		]]);
+		$attendee = new Attendee();
+		$attendee->setDisplayName('Bob (guest)');
+		$guest = $this->createMock(Participant::class);
+		$guest->method('getAttendee')->willReturn($attendee);
+		// Guests are removed from the conversation when they leave.
+		$this->participantService->method('getParticipantByActor')->willReturnCallback(
+			fn (Room $room, string $actorType, string $actorId) => $actorId === 'abc' ? $guest : throw new ParticipantNotFoundException(),
+		);
+		$this->participantTracksStore->expects($this->once())->method('setDisplayNames')->with(42, ['1' => 'Bob (guest)']);
+
+		$this->recordingService->finishUpload($room, $owner, 'name.ogg', null, $tracks);
 	}
 
 	public function testFinishUploadMissingFile(): void {

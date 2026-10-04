@@ -114,7 +114,9 @@ use OCA\Talk\Profile\TalkCallAction;
 use OCA\Talk\PublicShare\TemplateLoader as PublicShareTemplateLoader;
 use OCA\Talk\PublicShareAuth\Listener as PublicShareAuthListener;
 use OCA\Talk\PublicShareAuth\TemplateLoader as PublicShareAuthTemplateLoader;
+use OCA\Talk\Recording\GeminiTranscribeClient;
 use OCA\Talk\Recording\Listener as RecordingListener;
+use OCA\Talk\Recording\TrackTranscriptionProvider;
 use OCA\Talk\Search\ConversationSearch;
 use OCA\Talk\Search\CurrentMessageSearch;
 use OCA\Talk\Search\MessageSearch;
@@ -188,6 +190,7 @@ class Application extends App implements IBootstrap {
 		$context->registerMiddleWare(ParameterOutOfRangeMiddleware::class);
 		$context->registerCapability(Capabilities::class);
 		$context->registerConfigLexicon(ConfigLexicon::class);
+		$context->registerServiceAlias(TrackTranscriptionProvider::class, GeminiTranscribeClient::class);
 
 		// Listeners to load the UI and integrate it into other apps
 		$context->registerEventListener(AddContentSecurityPolicyEvent::class, CSPListener::class);

@@ -33948,6 +33948,15 @@
                                         "type": "boolean",
                                         "default": false,
                                         "description": "Whether to remove the stored credential"
+                                    },
+                                    "multitrackEnabled": {
+                                        "type": "boolean",
+                                        "default": false,
+                                        "description": "Whether to transcribe recordings per participant track"
+                                    },
+                                    "transcriptionModel": {
+                                        "type": "string",
+                                        "description": "Gemini Transcribe model to transcribe participant tracks"
                                     }
                                 }
                             }

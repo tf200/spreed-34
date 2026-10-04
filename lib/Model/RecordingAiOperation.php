@@ -51,6 +51,8 @@ class RecordingAiOperation extends SnowflakeAwareEntity {
 	public const STATE_UPLOADING = 'uploading';
 	public const STATE_SUBMITTED = 'submitted';
 	public const STATE_TRANSCRIBING = 'transcribing';
+	public const STATE_TRANSCRIBING_TRACKS = 'transcribing_tracks';
+	public const STATE_MERGING = 'merging';
 	public const STATE_MAPPING = 'mapping';
 	public const STATE_CLEANING = 'cleaning';
 	public const STATE_SUMMARIZING = 'summarizing';

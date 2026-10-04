@@ -11,8 +11,10 @@ import RecordingApp from './RecordingApp.vue'
 import { createTalkRouter } from './router/router.ts'
 import store from './store/index.js'
 import pinia from './stores/pinia.ts'
+import ParticipantTrackRecorder from './utils/recording/participantTrackRecorder.js'
 import { startSpeakerTimeline, stopSpeakerTimeline } from './utils/speakerTimeline.js'
 import {
+	callParticipantCollection,
 	signalingGetSettingsForRecording,
 	signalingJoinCallForRecording,
 	signalingKill,
@@ -48,7 +50,12 @@ OCA.Talk.instance = instance
 OCA.Talk.signalingGetSettingsForRecording = signalingGetSettingsForRecording
 OCA.Talk.signalingJoinCallForRecording = signalingJoinCallForRecording
 OCA.Talk.signalingKill = signalingKill
-OCA.Talk.startSpeakerTimeline = () => startSpeakerTimeline(instance.callParticipantModels)
+OCA.Talk.startSpeakerTimeline = () => startSpeakerTimeline(callParticipantCollection.callParticipantModels)
 OCA.Talk.stopSpeakerTimeline = stopSpeakerTimeline
+
+const participantTrackRecorder = new ParticipantTrackRecorder(callParticipantCollection)
+OCA.Talk.startTrackRecording = (options) => participantTrackRecorder.start(options)
+OCA.Talk.drainTrackChunks = () => participantTrackRecorder.drain()
+OCA.Talk.stopTrackRecording = () => participantTrackRecorder.stop()
 
 export default instance

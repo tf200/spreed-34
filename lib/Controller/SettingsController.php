@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace OCA\Talk\Controller;
 
+use OCA\Talk\Recording\GoogleAiConfig;
 use OCA\Talk\Settings\BeforePreferenceSetEventListener;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\ApiRoute;
@@ -104,6 +105,8 @@ class SettingsController extends OCSController {
 	 * @param string $geminiModel Gemini model
 	 * @param string $serviceAccountJson Service account JSON credential
 	 * @param bool $removeServiceAccount Whether to remove the stored credential
+	 * @param bool $multitrackEnabled Whether to transcribe recordings per participant track
+	 * @param string $transcriptionModel Gemini Transcribe model to transcribe participant tracks
 	 * @return DataResponse<Http::STATUS_OK, null, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, null, array{}>
 	 *
 	 * 200: Settings updated
@@ -122,14 +125,17 @@ class SettingsController extends OCSController {
 		string $geminiModel,
 		#[SensitiveParameter] string $serviceAccountJson = '',
 		bool $removeServiceAccount = false,
+		bool $multitrackEnabled = false,
+		string $transcriptionModel = GoogleAiConfig::DEFAULT_TRANSCRIPTION_MODEL,
 	): DataResponse {
 		if (!preg_match('/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/', $project)
 			|| !preg_match('/^[a-z][a-z0-9-]{1,31}$/', $location)
 			|| !preg_match('/^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/', $bucket)
-			|| !preg_match('/^[a-z]{2,3}(?:-[A-Z]{2})?$/', $language)
+			|| !GoogleAiConfig::isValidLanguage($language)
 			|| !preg_match('/^[a-zA-Z0-9._-]{1,64}$/', $speechModel)
 			|| !preg_match('/^(?:global|[a-z]+-[a-z]+[0-9])$/', $geminiLocation)
-			|| !preg_match('/^[a-zA-Z0-9._-]{1,64}$/', $geminiModel)) {
+			|| !preg_match('/^[a-zA-Z0-9._-]{1,64}$/', $geminiModel)
+			|| !preg_match('/^[a-zA-Z0-9._-]{1,64}$/', $transcriptionModel)) {
 			return new DataResponse(null, Http::STATUS_BAD_REQUEST);
 		}
 
@@ -148,11 +154,12 @@ class SettingsController extends OCSController {
 			}
 		}
 
-		$values = compact('project', 'location', 'bucket', 'language', 'speechModel', 'geminiLocation', 'geminiModel');
+		$values = compact('project', 'location', 'bucket', 'language', 'speechModel', 'geminiLocation', 'geminiModel', 'transcriptionModel');
 		foreach ($values as $key => $value) {
 			$this->config->setAppValue('spreed', 'recording_google_' . strtolower((string)preg_replace('/(?<!^)[A-Z]/', '_$0', $key)), $value);
 		}
 		$this->config->setAppValue('spreed', 'recording_google_ai_enabled', $enabled ? 'yes' : 'no');
+		$this->config->setAppValue('spreed', 'recording_google_multitrack_enabled', $multitrackEnabled ? 'yes' : 'no');
 		if ($removeServiceAccount) {
 			$this->config->deleteAppValue('spreed', 'recording_google_service_account');
 		} elseif ($serviceAccountJson !== '') {

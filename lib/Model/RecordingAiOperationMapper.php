@@ -102,6 +102,8 @@ class RecordingAiOperationMapper extends QBMapper {
 				RecordingAiOperation::STATE_UPLOADING,
 				RecordingAiOperation::STATE_SUBMITTED,
 				RecordingAiOperation::STATE_TRANSCRIBING,
+				RecordingAiOperation::STATE_TRANSCRIBING_TRACKS,
+				RecordingAiOperation::STATE_MERGING,
 				RecordingAiOperation::STATE_MAPPING,
 				RecordingAiOperation::STATE_CLEANING,
 				RecordingAiOperation::STATE_SUMMARIZING,

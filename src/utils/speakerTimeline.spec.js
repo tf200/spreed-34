@@ -52,7 +52,8 @@ describe('speakerTimeline', () => {
 	})
 
 	test('captures participants already speaking when collection starts', () => {
-		performance.now.mockReturnValueOnce(1000)
+		// Start time and the time of the seeded speaking event.
+		performance.now.mockReturnValueOnce(1000).mockReturnValueOnce(1000)
 		startSpeakerTimeline([{ attributes: { peerId: 'peer-1', name: 'Alice', speaking: true } }])
 		performance.now.mockReturnValueOnce(2000)
 

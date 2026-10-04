@@ -122,6 +122,7 @@
 					v-model="google.language"
 					class="form__textfield"
 					:label="t('spreed', 'Transcription language')"
+					:helperText="t('spreed', '\'auto\' to detect the language, or a language code like nl-NL or en-US')"
 					labelVisible />
 				<NcTextField
 					v-model="google.speechModel"
@@ -146,6 +147,19 @@
 				<NcCheckboxRadioSwitch v-if="google.serviceAccountConfigured" v-model="removeServiceAccount" type="checkbox">
 					{{ t('spreed', 'Remove configured service account') }}
 				</NcCheckboxRadioSwitch>
+
+				<h4>{{ t('spreed', 'Transcription per participant') }}</h4>
+				<p class="settings-hint">
+					{{ t('spreed', 'The recording server records every participant separately, so each part of the transcript is attributed to the right person. Requires a recording server with participant tracks enabled. Uses the project and service account above.') }}
+				</p>
+				<NcCheckboxRadioSwitch v-model="google.multitrackEnabled" type="switch" :disabled="loading">
+					{{ t('spreed', 'Transcribe each participant separately') }}
+				</NcCheckboxRadioSwitch>
+				<NcTextField
+					v-model="google.transcriptionModel"
+					class="form__textfield"
+					:label="t('spreed', 'Transcription model')"
+					labelVisible />
 				<NcButton variant="primary" :disabled="loading" @click="saveGoogleSettings">
 					{{ t('spreed', 'Save Google Cloud settings') }}
 				</NcButton>

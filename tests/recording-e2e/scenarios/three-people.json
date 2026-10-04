@@ -1,0 +1,26 @@
+{
+	"language": "en-US",
+	"sampleRate": 16000,
+	"participants": [
+		{ "id": "alice", "name": "Alice", "voice": { "google": "en-US-Neural2-F", "espeak": "en-us+f3" } },
+		{ "id": "bob", "name": "Bob", "voice": { "google": "en-US-Neural2-D", "espeak": "en-us+m3" } },
+		{ "id": "carol", "name": "Carol", "voice": { "google": "en-GB-Neural2-A", "espeak": "en-gb+f4" } }
+	],
+	"turns": [
+		{ "speaker": "alice", "start": 1.0, "text": "Good morning everyone. Let's start with the infrastructure budget for the third quarter." },
+		{ "speaker": "bob", "start": 8.5, "text": "Thanks Alice. We already committed half of it to the database migration." },
+		{ "speaker": "alice", "start": 15.0, "text": "Right." },
+		{ "speaker": "carol", "start": 16.5, "text": "And the migration is two weeks behind schedule, so we might need more." },
+		{ "speaker": "alice", "start": 23.0, "text": "How much more are we talking about? Because the remaining budget has to cover the new monitoring setup as well, and that one is not optional." },
+		{ "speaker": "bob", "start": 28.0, "text": "Sorry to interrupt, but monitoring is already covered by the operations team." },
+		{ "speaker": "carol", "start": 35.0, "text": "Yes." },
+		{ "speaker": "alice", "start": 36.5, "text": "Okay, good to know." },
+		{ "speaker": "carol", "start": 39.0, "text": "I would estimate twenty thousand euros extra for the migration." },
+		{ "speaker": "bob", "start": 44.5, "text": "That sounds high." },
+		{ "speaker": "carol", "start": 46.0, "text": "It includes the external consultant for the last phase." },
+		{ "speaker": "alice", "start": 50.5, "text": "Then let's decide this today. Bob, can you send the updated numbers by Friday?" },
+		{ "speaker": "bob", "start": 56.0, "text": "Sure, I will send them by Friday morning." },
+		{ "speaker": "carol", "start": 60.0, "text": "And I will ask the consultant for a fixed price offer." },
+		{ "speaker": "alice", "start": 65.0, "text": "Perfect. Thank you both, that's all for today." }
+	]
+}

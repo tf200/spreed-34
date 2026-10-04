@@ -519,11 +519,12 @@ class RecordingController extends AEnvironmentAwareOCSController {
 
 		try {
 			$speakerTimeline = $this->request->getUploadedFile('speakerTimeline');
+			$participantTracks = $this->request->getUploadedFile('participantTracks');
 			if ($fileName !== null) {
-				$this->recordingService->finishUpload($this->getRoom(), $owner, $fileName, $speakerTimeline);
+				$this->recordingService->finishUpload($this->getRoom(), $owner, $fileName, $speakerTimeline, $participantTracks);
 			} else {
 				$file = $this->request->getUploadedFile('file');
-				$this->recordingService->store($this->getRoom(), $owner, $file, $speakerTimeline);
+				$this->recordingService->store($this->getRoom(), $owner, $file, $speakerTimeline, $participantTracks);
 			}
 		} catch (InvalidArgumentException $e) {
 			return new DataResponse(['error' => $e->getMessage()], Http::STATUS_BAD_REQUEST);

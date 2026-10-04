@@ -14,6 +14,7 @@ use OCA\Talk\Model\RecordingAiOperationMapper;
 use OCA\Talk\Recording\GoogleCloudStorageClient;
 use OCA\Talk\Recording\GoogleGeminiClient;
 use OCA\Talk\Recording\GoogleSpeechClient;
+use OCA\Talk\Recording\MultitrackTranscriptService;
 use OCA\Talk\Recording\RecordingAiProcessor;
 use OCA\Talk\Recording\RecordingAiTranscriptService;
 use OCA\Talk\Service\RecordingService;
@@ -24,6 +25,7 @@ use OCP\Files\Folder;
 use OCP\Files\IRootFolder;
 use OCP\IConfig;
 use PHPUnit\Framework\MockObject\MockObject;
+use Psr\Log\LoggerInterface;
 use Test\TestCase;
 
 class RecordingAiProcessorTest extends TestCase {
@@ -39,6 +41,7 @@ class RecordingAiProcessorTest extends TestCase {
 	private RecordingService&MockObject $recordingService;
 	private IConfig&MockObject $serverConfig;
 	private RecordingSummaryTemplateService&MockObject $recordingSummaryTemplateService;
+	private MultitrackTranscriptService&MockObject $multitrack;
 	private RecordingAiProcessor $processor;
 
 	protected function setUp(): void {
@@ -61,6 +64,7 @@ class RecordingAiProcessorTest extends TestCase {
 		$this->recordingSummaryTemplateService->method('findSnapshot')->willReturn([
 			'id' => '7', 'name' => 'Executive', 'instructions' => 'Focus on risks and decisions.',
 		]);
+		$this->multitrack = $this->createMock(MultitrackTranscriptService::class);
 		$this->processor = new RecordingAiProcessor(
 			$this->mapper,
 			$this->rootFolder,
@@ -72,6 +76,8 @@ class RecordingAiProcessorTest extends TestCase {
 			$this->recordingService,
 			$this->serverConfig,
 			$this->recordingSummaryTemplateService,
+			$this->multitrack,
+			$this->createMock(LoggerInterface::class),
 		);
 	}
 
@@ -211,6 +217,8 @@ class RecordingAiProcessorTest extends TestCase {
 			$this->recordingService,
 			$this->serverConfig,
 			$this->recordingSummaryTemplateService,
+			$this->multitrack,
+			$this->createMock(LoggerInterface::class),
 		);
 		$this->transcriptService->expects($this->once())->method('normalize')->willReturn('Raw meeting transcript');
 		$this->gemini->expects($this->once())->method('standardizeTranscript')->with('Raw meeting transcript')->willReturn('Clean meeting transcript');
@@ -375,6 +383,114 @@ class RecordingAiProcessorTest extends TestCase {
 			});
 
 		$this->processor->process(42);
+	}
+
+	public function testQueuedOperationWithTracksTranscribesTracks(): void {
+		$operation = $this->createOperation(RecordingAiOperation::STATE_QUEUED);
+		$this->mapper->method('findById')->with(42)->willReturn($operation);
+		$this->mapper->method('claimForUpload')->willReturnCallback(function () use ($operation): bool {
+			$operation->setState(RecordingAiOperation::STATE_UPLOADING);
+			return true;
+		});
+		$this->mapper->method('claimForStage')->willReturn(true);
+		$this->multitrack->method('isAvailable')->willReturn(true);
+		$this->multitrack->expects($this->once())->method('prepare')->with($operation);
+		$this->multitrack->expects($this->once())->method('transcribePending')->willReturn(['pending' => 2, 'failed' => 0, 'retrying' => 0]);
+		$this->storage->expects($this->never())->method('upload');
+		$states = [];
+		$this->mapper->method('updateClaimed')->willReturnCallback(function (RecordingAiOperation $updated) use (&$states): bool {
+			$states[] = $updated->getState();
+			return true;
+		});
+
+		$this->processor->process(42);
+
+		$this->assertSame([RecordingAiOperation::STATE_TRANSCRIBING_TRACKS, RecordingAiOperation::STATE_TRANSCRIBING_TRACKS], $states);
+		// More chunks are pending after the time budget: continue right away.
+		$this->assertSame(strtotime(self::NOW), $operation->getNextAttemptAt()->getTimestamp());
+	}
+
+	public function testTracksThatCanNotBePreparedAreDeleted(): void {
+		$operation = $this->createOperation(RecordingAiOperation::STATE_QUEUED);
+		$this->mapper->method('findById')->with(42)->willReturn($operation);
+		$this->mapper->method('claimForUpload')->willReturnCallback(function () use ($operation): bool {
+			$operation->setState(RecordingAiOperation::STATE_UPLOADING);
+			return true;
+		});
+		$this->mapper->method('claimForStage')->willReturn(true);
+		$this->mapper->method('updateClaimed')->willReturn(true);
+		$this->multitrack->method('isAvailable')->willReturn(true);
+		$this->multitrack->method('prepare')->willThrowException(new \RuntimeException('Database error'));
+		$this->multitrack->expects($this->once())->method('cleanup')->with($operation);
+		// The mixed recording is transcribed instead.
+		$file = $this->createConfiguredMock(File::class, ['getMimeType' => 'audio/webm']);
+		$folder = $this->createMock(Folder::class);
+		$folder->method('getById')->with(123)->willReturn([$file]);
+		$this->rootFolder->method('getUserFolder')->with('owner')->willReturn($folder);
+		$this->storage->expects($this->once())->method('upload')->with($file, 42)->willReturn('recording-object');
+		$this->speech->method('submit')->willReturn('speech-operation');
+
+		$this->processor->process(42);
+
+		$this->assertSame(RecordingAiOperation::STATE_TRANSCRIBING, $operation->getState());
+	}
+
+	public function testTrackTranscriptionRetriesLater(): void {
+		$operation = $this->createOperation(RecordingAiOperation::STATE_TRANSCRIBING_TRACKS);
+		$this->expectStageClaims($operation);
+		$this->multitrack->method('transcribePending')->willReturn(['pending' => 1, 'failed' => 0, 'retrying' => 1]);
+		$this->mapper->expects($this->once())->method('updateClaimed')->willReturn(true);
+
+		$this->processor->process(42);
+
+		$this->assertSame(RecordingAiOperation::STATE_TRANSCRIBING_TRACKS, $operation->getState());
+		$this->assertSame(strtotime(self::NOW) + 120, $operation->getNextAttemptAt()->getTimestamp());
+		$this->assertSame('track_transcription_retrying', $operation->getLastErrorCode());
+	}
+
+	public function testFailedTrackFallsBackToMixedRecording(): void {
+		$operation = $this->createOperation(RecordingAiOperation::STATE_TRANSCRIBING_TRACKS);
+		$this->expectStageClaims($operation);
+		$this->multitrack->method('transcribePending')->willReturn(['pending' => 0, 'failed' => 1, 'retrying' => 0]);
+		$this->multitrack->expects($this->once())->method('cleanup')->with($operation);
+		$this->mapper->expects($this->once())->method('updateClaimed')->willReturn(true);
+		$this->recordingService->expects($this->never())->method('notifyAboutFailedTranscript');
+
+		$this->processor->process(42);
+
+		$this->assertSame(RecordingAiOperation::STATE_QUEUED, $operation->getState());
+	}
+
+	public function testMergingStoresDocumentAndCleansWithExactSpeakers(): void {
+		$operation = $this->createOperation(RecordingAiOperation::STATE_MERGING);
+		$this->expectStageClaims($operation, 3);
+		$this->multitrack->method('merge')->willReturn(['markdown' => "**Alice** · 00:01\nHello", 'document' => ['version' => 2]]);
+		$this->multitrack->expects($this->once())->method('storeDocument')->with($operation, ['version' => 2]);
+		$this->multitrack->expects($this->once())->method('cleanup')->with($operation);
+		$this->multitrack->method('hasDocument')->willReturn(true);
+		$this->gemini->expects($this->once())->method('standardizeTranscript')
+			->with("**Alice** · 00:01\nHello", true)
+			->willReturn("**Alice** · 00:01\nHello.");
+		$this->gemini->method('summarize')->willReturn('Summary');
+		$this->mapper->method('updateClaimed')->willReturn(true);
+
+		$this->processor->process(42);
+
+		$this->assertSame(RecordingAiOperation::STATE_COMPLETED, $operation->getState());
+	}
+
+	public function testMergingWithoutSpeechFails(): void {
+		$operation = $this->createOperation(RecordingAiOperation::STATE_MERGING);
+		$this->expectStageClaims($operation);
+		$this->multitrack->method('merge')->willReturn(['markdown' => '', 'document' => []]);
+		$this->multitrack->expects($this->never())->method('storeDocument');
+		$this->mapper->method('updateClaimed')->willReturn(true);
+		$this->recordingService->expects($this->once())->method('notifyAboutFailedTranscript');
+
+		$this->processor->process(42);
+
+		$this->assertSame(RecordingAiOperation::STATE_FAILED, $operation->getState());
+		$this->assertSame('empty_transcript', $operation->getLastErrorCode());
 	}
 
 	private function createOperation(string $state): RecordingAiOperation {

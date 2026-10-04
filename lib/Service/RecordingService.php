@@ -18,6 +18,7 @@ use OCA\Talk\Exceptions\RecordingNotFoundException;
 use OCA\Talk\Manager;
 use OCA\Talk\Participant;
 use OCA\Talk\Recording\BackendNotifier;
+use OCA\Talk\Recording\ParticipantTracksStore;
 use OCA\Talk\Recording\RecordingAiService;
 use OCA\Talk\Room;
 use OCA\Talk\Settings\UserPreference;
@@ -100,6 +101,7 @@ class RecordingService {
 		private readonly RecordingAiService $recordingAiService,
 		private readonly RecordingArtifactService $recordingArtifactService,
 		private readonly RecordingSummaryTemplateService $recordingSummaryTemplateService,
+		private readonly ParticipantTracksStore $participantTracksStore,
 	) {
 	}
 
@@ -145,7 +147,7 @@ class RecordingService {
 		}
 	}
 
-	public function store(Room $room, string $owner, array $file, ?array $speakerTimeline = null): void {
+	public function store(Room $room, string $owner, array $file, ?array $speakerTimeline = null, ?array $participantTracks = null): void {
 		$snapshot = $this->readSnapshot($this->getSummaryConfigKey($room));
 		$this->appConfig->deleteAppValue(self::APPCONFIG_PREFIX . $room->getToken());
 		try {
@@ -176,6 +178,7 @@ class RecordingService {
 			throw new InvalidArgumentException('owner_permission');
 		}
 
+		$this->storeParticipantTracks($room, $fileNode, $participantTracks);
 		$this->finalizeRecording($room, $participant, $fileNode, $owner, $snapshot);
 		$this->appConfig->deleteAppValue($this->getSummaryConfigKey($room));
 	}
@@ -346,7 +349,7 @@ class RecordingService {
 	 *
 	 * @throws InvalidArgumentException
 	 */
-	public function finishUpload(Room $room, string $owner, string $fileName, ?array $speakerTimeline = null): void {
+	public function finishUpload(Room $room, string $owner, string $fileName, ?array $speakerTimeline = null, ?array $participantTracks = null): void {
 		$snapshot = $this->readSnapshot($this->getUploadSummaryConfigKey($room, $fileName));
 		try {
 			$participant = $this->participantService->getParticipant($room, $owner);
@@ -401,9 +404,56 @@ class RecordingService {
 			}
 		}
 
+		$this->storeParticipantTracks($room, $fileNode, $participantTracks);
 		$this->finalizeRecording($room, $participant, $fileNode, $owner, $snapshot);
 
 		$this->cleanupUploadShare($room, $fileName);
+	}
+
+	/**
+	 * Store the speech chunks of the participant tracks, if uploaded.
+	 *
+	 * The tracks are optional, so an invalid upload is only logged and the
+	 * recording is transcribed from the mixed audio instead.
+	 */
+	private function storeParticipantTracks(Room $room, File $fileNode, ?array $participantTracks): void {
+		if ($participantTracks === null || ($participantTracks['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+			return;
+		}
+
+		try {
+			$this->participantTracksStore->storeUploadedArchive((int)$fileNode->getId(), $participantTracks);
+			$this->storeParticipantTrackNames($room, (int)$fileNode->getId());
+		} catch (\Throwable $e) {
+			$this->logger->warning('Participant tracks of the recording could not be stored [ conversation: "' . $room->getToken() . '" ]', ['exception' => $e]);
+		}
+	}
+
+	/**
+	 * Stores the current display names of the participants of the tracks.
+	 *
+	 * The recording browser does not always know them, and guests are removed
+	 * from the conversation when they leave, so they need to be resolved while
+	 * the participants are most likely still in the call.
+	 */
+	private function storeParticipantTrackNames(Room $room, int $recordingFileId): void {
+		$displayNames = [];
+		foreach ($this->participantTracksStore->getManifest($recordingFileId)['segments'] as $segment) {
+			if (!is_string($segment['actorType'] ?? null) || !is_string($segment['actorId'] ?? null)) {
+				continue;
+			}
+			try {
+				$name = trim($this->participantService->getParticipantByActor($room, $segment['actorType'], $segment['actorId'])->getAttendee()->getDisplayName());
+			} catch (ParticipantNotFoundException) {
+				continue;
+			}
+			if ($name !== '') {
+				$displayNames[$segment['id']] = $name;
+			}
+		}
+		if ($displayNames !== []) {
+			$this->participantTracksStore->setDisplayNames($recordingFileId, $displayNames);
+		}
 	}
 
 	/**
@@ -583,7 +633,7 @@ class RecordingService {
 				$fileNode = null;
 				$artifact = $this->recordingArtifactService->findExisting($recordingFileId, $aiTask);
 				if ($artifact === null) {
-					$tempName = '.recording-artifact-source-' . $this->secureRandom->generate(16) . '.md';
+					$tempName = '.recording-artifact-source-' . $this->secureRandom->generate(16, ISecureRandom::CHAR_ALPHANUMERIC) . '.md';
 					$fileNode = $recordingFolder->newFile(
 						$tempName,
 						$output . "\n\n$warning\n",

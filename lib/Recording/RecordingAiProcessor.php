@@ -18,11 +18,16 @@ use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\Files\File;
 use OCP\Files\IRootFolder;
 use OCP\IConfig;
+use Psr\Log\LoggerInterface;
 
 class RecordingAiProcessor {
 	private const MAX_TRANSITIONS = 4;
 	private const UPLOAD_LEASE_SECONDS = 4500;
 	private const STAGE_LEASE_SECONDS = 300;
+	// A run starts new chunk requests during the budget, and a request can
+	// take up to the timeout of GeminiTranscribeClient after that.
+	private const TRACKS_LEASE_SECONDS = 600;
+	private const TRACKS_BUDGET_SECONDS = 240;
 
 	public function __construct(
 		private readonly RecordingAiOperationMapper $mapper,
@@ -35,6 +40,8 @@ class RecordingAiProcessor {
 		private readonly RecordingService $recordingService,
 		private readonly IConfig $serverConfig,
 		private readonly RecordingSummaryTemplateService $recordingSummaryTemplateService,
+		private readonly MultitrackTranscriptService $multitrack,
+		private readonly LoggerInterface $logger,
 	) {
 	}
 
@@ -66,6 +73,8 @@ class RecordingAiProcessor {
 				RecordingAiOperation::STATE_UPLOADING => $this->submit($operation, $claimToken),
 				RecordingAiOperation::STATE_SUBMITTED => $this->resumeSubmitted($operation, $claimToken),
 				RecordingAiOperation::STATE_TRANSCRIBING => $this->poll($operation, $claimToken),
+				RecordingAiOperation::STATE_TRANSCRIBING_TRACKS => $this->transcribeTracks($operation, $claimToken),
+				RecordingAiOperation::STATE_MERGING => $this->merge($operation, $claimToken),
 				RecordingAiOperation::STATE_MAPPING => $this->map($operation, $claimToken),
 				RecordingAiOperation::STATE_CLEANING => $this->clean($operation, $claimToken),
 				RecordingAiOperation::STATE_SUMMARIZING => $this->summarize($operation, $claimToken),
@@ -78,6 +87,13 @@ class RecordingAiProcessor {
 	}
 
 	private function submit(RecordingAiOperation $operation, string $claimToken): bool {
+		if ($operation->getGcsObject() === null && $this->startTracks($operation)) {
+			$operation->setState(RecordingAiOperation::STATE_TRANSCRIBING_TRACKS);
+			$this->resetErrors($operation);
+			$this->schedule($operation, 0);
+			return $this->persist($operation, $claimToken);
+		}
+
 		try {
 			$nodes = $this->rootFolder->getUserFolder($operation->getOwnerId())->getById($operation->getRecordingFileId());
 			$file = array_pop($nodes);
@@ -111,6 +127,87 @@ class RecordingAiProcessor {
 			$this->retryOrFail($operation, $claimToken, 'submission_failed', $this->getErrorMessage('Recording AI submission failed', $e));
 		}
 		return false;
+	}
+
+	/**
+	 * Prepares the transcription of the participant tracks, if available.
+	 *
+	 * @return bool false if the mixed recording has to be transcribed instead
+	 */
+	private function startTracks(RecordingAiOperation $operation): bool {
+		try {
+			if (!$this->multitrack->isAvailable($operation)) {
+				return false;
+			}
+			$this->multitrack->prepare($operation);
+			return true;
+		} catch (\Throwable $e) {
+			$this->logger->warning('Participant tracks can not be transcribed, using the mixed recording', ['exception' => $e]);
+			try {
+				$this->multitrack->cleanup($operation);
+			} catch (\Throwable $e) {
+				// The cleanup job deletes the tracks later.
+				$this->logger->warning('Participant tracks could not be deleted', ['exception' => $e]);
+			}
+			return false;
+		}
+	}
+
+	private function transcribeTracks(RecordingAiOperation $operation, string $claimToken): bool {
+		try {
+			$result = $this->multitrack->transcribePending($operation, self::TRACKS_BUDGET_SECONDS);
+		} catch (\Throwable $e) {
+			$this->retryOrFail($operation, $claimToken, 'track_transcription_failed', $this->getErrorMessage('Track transcription failed', $e));
+			return false;
+		}
+
+		if ($result['failed'] > 0) {
+			// A transcript with the words of a participant missing would be
+			// misleading, so the mixed recording is transcribed instead.
+			$this->logger->warning('Transcription of participant tracks failed, using the mixed recording', ['operationId' => $operation->getId()]);
+			$this->multitrack->cleanup($operation);
+			$operation->setState(RecordingAiOperation::STATE_QUEUED);
+			$this->resetErrors($operation);
+			$this->schedule($operation, 0);
+			$this->persist($operation, $claimToken);
+			return false;
+		}
+
+		if ($result['pending'] > 0) {
+			$this->schedule($operation, $result['retrying'] > 0 ? 120 : 0);
+			$operation->setLastErrorCode($result['retrying'] > 0 ? 'track_transcription_retrying' : null);
+			$this->persist($operation, $claimToken);
+			return false;
+		}
+
+		$operation->setState(RecordingAiOperation::STATE_MERGING);
+		$this->resetErrors($operation);
+		$this->schedule($operation, 0);
+		return $this->persist($operation, $claimToken);
+	}
+
+	private function merge(RecordingAiOperation $operation, string $claimToken): bool {
+		try {
+			$result = $this->multitrack->merge($operation);
+			if ($result['markdown'] === '') {
+				$this->fail($operation, $claimToken, 'empty_transcript', 'No speech was transcribed');
+				return false;
+			}
+			$this->multitrack->storeDocument($operation, $result['document']);
+		} catch (\Throwable $e) {
+			$this->retryOrFail($operation, $claimToken, 'merging_failed', $this->getErrorMessage('Merging the track transcripts failed', $e));
+			return false;
+		}
+
+		$operation->setTranscript($result['markdown']);
+		$operation->setState(RecordingAiOperation::STATE_CLEANING);
+		$this->resetErrors($operation);
+		$this->schedule($operation, 0);
+		$persisted = $this->persist($operation, $claimToken);
+		if ($persisted) {
+			$this->multitrack->cleanup($operation);
+		}
+		return $persisted;
 	}
 
 	private function resumeSubmitted(RecordingAiOperation $operation, string $claimToken): bool {
@@ -187,7 +284,10 @@ class RecordingAiProcessor {
 		}
 
 		try {
-			$transcript = $this->gemini->standardizeTranscript($operation->getTranscript());
+			$transcript = $this->gemini->standardizeTranscript(
+				$operation->getTranscript(),
+				$this->multitrack->hasDocument($operation),
+			);
 			$this->transcriptService->store($operation, $transcript);
 			$this->resetErrors($operation);
 			if ($this->serverConfig->getAppValue('spreed', 'call_recording_summary', 'yes') === 'yes') {
@@ -265,6 +365,11 @@ class RecordingAiProcessor {
 		}
 		$this->cleanup($operation);
 		try {
+			$this->multitrack->cleanup($operation);
+		} catch (\Throwable) {
+			// The audio is removed with the recording at the latest.
+		}
+		try {
 			$this->recordingService->notifyAboutFailedTranscript(
 				$operation->getOwnerId(),
 				$operation->getRoomToken(),
@@ -303,8 +408,12 @@ class RecordingAiProcessor {
 		if (in_array($operation->getState(), [RecordingAiOperation::STATE_QUEUED, RecordingAiOperation::STATE_UPLOADING], true)) {
 			$claimUntil->modify('+' . self::UPLOAD_LEASE_SECONDS . ' seconds');
 			$claimed = $this->mapper->claimForUpload((int)$operation->getId(), $claimToken, $now, $claimUntil);
+		} elseif ($operation->getState() === RecordingAiOperation::STATE_TRANSCRIBING_TRACKS) {
+			$claimUntil->modify('+' . self::TRACKS_LEASE_SECONDS . ' seconds');
+			$claimed = $this->mapper->claimForStage((int)$operation->getId(), $operation->getState(), $claimToken, $now, $claimUntil);
 		} elseif (in_array($operation->getState(), [
 			RecordingAiOperation::STATE_SUBMITTED,
+			RecordingAiOperation::STATE_MERGING,
 			RecordingAiOperation::STATE_TRANSCRIBING,
 			RecordingAiOperation::STATE_MAPPING,
 			RecordingAiOperation::STATE_CLEANING,
