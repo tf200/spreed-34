@@ -150,6 +150,7 @@ export const mockedCapabilities: Capabilities = {
 				'breakout-rooms': true,
 				recording: true,
 				'recording-consent': 0,
+				'recording-summary': true,
 				'supported-reactions': ['❤️', '🎉', '👏', '👍', '👎', '😂', '🤩', '🤔', '😲', '😥'],
 				'predefined-backgrounds': ['1_office.jpg', '2_home.jpg', '3_abstract.jpg'],
 				'predefined-backgrounds-v2': ['/apps/spreed/img/backgrounds/1_office.jpg', '/apps/spreed/img/backgrounds/2_home.jpg', '/apps/spreed/img/backgrounds/3_abstract.jpg'],

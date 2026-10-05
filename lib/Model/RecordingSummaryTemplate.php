@@ -17,22 +17,32 @@ use OCP\DB\Types;
  * @method void setOwnerId(string $value)
  * @method string getName()
  * @method void setName(string $value)
- * @method string getInstructions()
- * @method void setInstructions(string $value)
+ * @method string getScope()
+ * @method void setScope(string $value)
+ * @method string|null getDescription()
+ * @method void setDescription(?string $value)
+ * @method string|null getDefinition()
+ * @method void setDefinition(?string $value)
  * @method \DateTime getCreatedAt()
  * @method void setCreatedAt(\DateTime $value)
  * @method \DateTime getUpdatedAt()
  * @method void setUpdatedAt(\DateTime $value)
  */
 class RecordingSummaryTemplate extends Entity {
+	public const SCOPE_USER = 'user';
+	public const SCOPE_ORGANIZATION = 'organization';
+
 	protected string $ownerId = '';
+	protected string $scope = '';
 	protected string $name = '';
-	protected string $instructions = '';
+	protected ?string $description = null;
+	protected ?string $definition = null;
 	protected ?\DateTime $createdAt = null;
 	protected ?\DateTime $updatedAt = null;
 
 	public function __construct() {
 		$this->addType('id', Types::BIGINT);
+		$this->addType('definition', Types::TEXT);
 		$this->addType('createdAt', Types::DATETIME);
 		$this->addType('updatedAt', Types::DATETIME);
 	}

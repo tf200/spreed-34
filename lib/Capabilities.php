@@ -177,6 +177,7 @@ class Capabilities implements IPublicCapability {
 			'conversation-subfolders',
 		],
 		'call' => [
+			'recording-summary',
 			'predefined-backgrounds',
 			'predefined-backgrounds-v2',
 			'can-upload-background',
@@ -258,6 +259,7 @@ class Capabilities implements IPublicCapability {
 			return [];
 		}
 
+		$recordingEnabled = $this->talkConfig->isRecordingEnabled();
 		$capabilities = [
 			'features' => self::FEATURES,
 			'features-local' => self::LOCAL_FEATURES,
@@ -270,8 +272,9 @@ class Capabilities implements IPublicCapability {
 				'call' => [
 					'enabled' => ((int)$this->serverConfig->getAppValue('spreed', 'start_calls', (string)Room::START_CALL_EVERYONE)) !== Room::START_CALL_NOONE,
 					'breakout-rooms' => $this->talkConfig->isBreakoutRoomsEnabled(),
-					'recording' => $this->talkConfig->isRecordingEnabled(),
+					'recording' => $recordingEnabled,
 					'recording-consent' => $this->talkConfig->recordingConsentRequired(),
+					'recording-summary' => $recordingEnabled && $this->serverConfig->getAppValue('spreed', 'call_recording_summary', 'yes') === 'yes',
 					'supported-reactions' => ['❤️', '🎉', '👏', '👋', '👍', '👎', '🔥', '😂', '🤩', '🤔', '😲', '😥'],
 					// 'predefined-backgrounds' => list<string>,
 					// 'predefined-backgrounds-v2' => list<string>,

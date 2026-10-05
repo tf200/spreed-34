@@ -20,6 +20,9 @@ class RecordingArtifactException extends \RuntimeException {
 	public const CONVERSION = 'conversion';
 	public const QUOTA = 'quota';
 	public const STORAGE = 'storage';
+	public const TYPE = 'type';
+	public const TRANSCRIPT_UNAVAILABLE = 'transcript';
+	public const GENERATION = 'generation';
 
 	public function __construct(
 		private readonly string $reason,

@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace OCA\Talk\Model;
 
+use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Db\QBMapper;
 use OCP\IDBConnection;
 
@@ -19,26 +20,43 @@ class RecordingSummaryTemplateMapper extends QBMapper {
 	}
 
 	/** @return list<RecordingSummaryTemplate> */
-	public function findAllByOwner(string $ownerId): array {
+	public function findPersonal(string $ownerId): array {
 		$query = $this->db->getQueryBuilder();
 		$query->select('*')->from($this->getTableName())
 			->where($query->expr()->eq('owner_id', $query->createNamedParameter($ownerId)))
-			->orderBy('updated_at', 'DESC');
+			->andWhere($query->expr()->eq('scope', $query->createNamedParameter(RecordingSummaryTemplate::SCOPE_USER)))
+			->orderBy('name', 'ASC');
 		return $this->findEntities($query);
 	}
 
-	public function findByIdAndOwner(string $id, string $ownerId): RecordingSummaryTemplate {
+	/** @return list<RecordingSummaryTemplate> */
+	public function findOrganization(): array {
 		$query = $this->db->getQueryBuilder();
 		$query->select('*')->from($this->getTableName())
-			->where($query->expr()->eq('id', $query->createNamedParameter($id)))
-			->andWhere($query->expr()->eq('owner_id', $query->createNamedParameter($ownerId)));
+			->where($query->expr()->eq('scope', $query->createNamedParameter(RecordingSummaryTemplate::SCOPE_ORGANIZATION)))
+			->orderBy('name', 'ASC');
+		return $this->findEntities($query);
+	}
+
+	/**
+	 * @throws DoesNotExistException
+	 */
+	public function findById(string $id): RecordingSummaryTemplate {
+		$query = $this->db->getQueryBuilder();
+		$query->select('*')->from($this->getTableName())
+			->where($query->expr()->eq('id', $query->createNamedParameter($id)));
 		return $this->findEntity($query);
 	}
 
+	/**
+	 * Deletes the personal templates of the user. Organization templates stay
+	 * when the administrator who created them is deleted.
+	 */
 	public function deleteByOwner(string $ownerId): void {
 		$query = $this->db->getQueryBuilder();
 		$query->delete($this->getTableName())
-			->where($query->expr()->eq('owner_id', $query->createNamedParameter($ownerId)));
+			->where($query->expr()->eq('owner_id', $query->createNamedParameter($ownerId)))
+			->andWhere($query->expr()->eq('scope', $query->createNamedParameter(RecordingSummaryTemplate::SCOPE_USER)));
 		$query->executeStatement();
 	}
 }

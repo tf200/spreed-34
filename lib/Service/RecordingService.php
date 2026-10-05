@@ -123,7 +123,7 @@ class RecordingService {
 			throw new InvalidArgumentException('config');
 		}
 
-		$snapshot = $this->recordingSummaryTemplateService->snapshot($summaryTemplateId, $owner);
+		$snapshot = $this->recordingSummaryTemplateService->snapshot($summaryTemplateId, $owner, $room->getToken());
 		$this->backendNotifier->start($room, $status, $owner, $participant);
 
 		$startingStatus = $status === Room::RECORDING_VIDEO ? Room::RECORDING_VIDEO_STARTING : Room::RECORDING_AUDIO_STARTING;
@@ -498,7 +498,39 @@ class RecordingService {
 			} catch (\JsonException) {
 			}
 		}
-		return $this->recordingSummaryTemplateService->snapshot(null, '');
+		return $this->recordingSummaryTemplateService->defaultSnapshot();
+	}
+
+	/**
+	 * The summary template of the recording in progress.
+	 *
+	 * @return ?array{id: ?string, name: string}
+	 */
+	public function getActiveSummaryTemplate(Room $room): ?array {
+		if ($this->appConfig->getAppValueString($this->getSummaryConfigKey($room), lazy: true) === '') {
+			return null;
+		}
+		$snapshot = $this->readSnapshot($this->getSummaryConfigKey($room));
+		return ['id' => $snapshot['id'], 'name' => $snapshot['name']];
+	}
+
+	/**
+	 * Changes the summary template of the recording in progress.
+	 *
+	 * @throws InvalidArgumentException when no recording is in progress or the
+	 *                                  user can not use the template
+	 */
+	public function setActiveSummaryTemplate(Room $room, string $templateId, string $userId): void {
+		if ($this->appConfig->getAppValueString($this->getSummaryConfigKey($room), lazy: true) === '') {
+			// Not recording, or the recording is already being uploaded.
+			throw new InvalidArgumentException('recording');
+		}
+		try {
+			$snapshot = $this->recordingSummaryTemplateService->snapshot($templateId, $userId);
+		} catch (\InvalidArgumentException) {
+			throw new InvalidArgumentException('summary_template');
+		}
+		$this->appConfig->setAppValueString($this->getSummaryConfigKey($room), json_encode($snapshot, JSON_THROW_ON_ERROR), true, true);
 	}
 
 	/**

@@ -190,6 +190,8 @@ export type components = {
                      * @description Whether recording consent is required (see [constants list](https://nextcloud-talk.readthedocs.io/en/latest/constants#recording-consent-required))
                      */
                     "recording-consent": number;
+                    /** @description Whether recordings are summarized with AI */
+                    "recording-summary"?: boolean;
                     /** @description List of supported reaction emojis during calls */
                     "supported-reactions": string[];
                     /** @description List of file names relative to the spreed/img/backgrounds/ web path, e.g. `2_home.jpg` */

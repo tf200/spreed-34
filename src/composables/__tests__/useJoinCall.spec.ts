@@ -47,36 +47,14 @@ describe('useJoinCall', () => {
 		vi.mocked(getTalkConfig).mockReturnValue(true as never)
 	})
 
-	test('starts recording with the selected summary template', async () => {
-		spawnDialog.mockResolvedValue('42')
-
+	test('starts recording right away, without asking for a summary template', async () => {
 		await useJoinCall().joinCall(token, { shouldStartRecording: true })
 
-		expect(dispatch).toHaveBeenCalledWith('startCallRecording', {
-			token,
-			callRecording: CALL.RECORDING.VIDEO,
-			summaryTemplateId: '42',
-		})
-	})
-
-	test('starts recording with null for the built-in default template', async () => {
-		spawnDialog.mockResolvedValue(null)
-
-		await useJoinCall().joinCall(token, { shouldStartRecording: true })
-
-		expect(dispatch).toHaveBeenCalledWith('startCallRecording', {
-			token,
-			callRecording: CALL.RECORDING.VIDEO,
-			summaryTemplateId: null,
-		})
-	})
-
-	test('joins without starting recording when template selection is cancelled', async () => {
-		spawnDialog.mockResolvedValue(undefined)
-
-		await useJoinCall().joinCall(token, { shouldStartRecording: true })
-
+		expect(spawnDialog).not.toHaveBeenCalled()
 		expect(dispatch).toHaveBeenCalledWith('joinCall', expect.objectContaining({ token }))
-		expect(dispatch).not.toHaveBeenCalledWith('startCallRecording', expect.anything())
+		expect(dispatch).toHaveBeenCalledWith('startCallRecording', {
+			token,
+			callRecording: CALL.RECORDING.VIDEO,
+		})
 	})
 })

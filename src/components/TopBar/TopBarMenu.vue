@@ -49,15 +49,25 @@
 					</template>
 					{{ t('spreed', 'Cancel recording start') }}
 				</NcActionButton>
-				<NcActionButton
-					v-else-if="isRecording && isInCall"
-					closeAfterClick
-					@click="stopRecording">
-					<template #icon>
-						<IconStop :size="20" />
-					</template>
-					{{ t('spreed', 'Stop recording') }}
-				</NcActionButton>
+				<template v-else-if="isRecording && isInCall">
+					<NcActionButton
+						closeAfterClick
+						@click="stopRecording">
+						<template #icon>
+							<IconStop :size="20" />
+						</template>
+						{{ t('spreed', 'Stop recording') }}
+					</NcActionButton>
+					<NcActionButton
+						v-if="isRecordingSummaryEnabled"
+						closeAfterClick
+						@click="changeSummaryTemplate">
+						<template #icon>
+							<IconTextBoxEditOutline :size="20" />
+						</template>
+						{{ t('spreed', 'Change summary template') }}
+					</NcActionButton>
+				</template>
 			</template>
 			<template v-else-if="hintRecording">
 				<NcActionButton
@@ -144,6 +154,7 @@
 </template>
 
 <script>
+import { showError, showSuccess } from '@nextcloud/dialogs'
 import { emit } from '@nextcloud/event-bus'
 import { t } from '@nextcloud/l10n'
 import { generateOcsUrl } from '@nextcloud/router'
@@ -161,8 +172,9 @@ import IconFileOutline from 'vue-material-design-icons/FileOutline.vue'
 import IconFullscreen from 'vue-material-design-icons/Fullscreen.vue'
 import IconFullscreenExit from 'vue-material-design-icons/FullscreenExit.vue'
 import IconStop from 'vue-material-design-icons/Stop.vue'
+import IconTextBoxEditOutline from 'vue-material-design-icons/TextBoxEditOutline.vue'
 import IconVideoOutline from 'vue-material-design-icons/VideoOutline.vue'
-import RecordingSummaryTemplateDialog from '../RecordingSummaryTemplateDialog.vue'
+import RecordingSummaryTemplatePicker from '../RecordingSummaryTemplates/RecordingSummaryTemplatePicker.vue'
 import IconFileDownload from '../../../img/material-icons/file-download.svg?raw'
 import IconMicrophoneOffOutline from '../../../img/material-icons/microphone-off-outline.svg?raw'
 import IconScreenRecordOutline from '../../../img/material-icons/screen-record-outline.svg?raw'
@@ -177,6 +189,11 @@ import {
 	hasTalkFeature,
 	showTalkFeatureHint,
 } from '../../services/CapabilitiesManager.ts'
+import {
+	getConversationSummaryTemplate,
+	setActiveSummaryTemplate,
+	setConversationSummaryTemplate,
+} from '../../services/recordingSummaryTemplateService.ts'
 import { generateAbsoluteUrl } from '../../utils/handleUrl.ts'
 import { callParticipantCollection } from '../../utils/webrtc/index.js'
 
@@ -198,6 +215,7 @@ export default {
 		IconFullscreen,
 		IconFullscreenExit,
 		IconStop,
+		IconTextBoxEditOutline,
 		IconVideoOutline,
 	},
 
@@ -294,6 +312,10 @@ export default {
 				|| this.conversation.callRecording === CALL.RECORDING.AUDIO_STARTING
 		},
 
+		isRecordingSummaryEnabled() {
+			return !!getTalkConfig(this.token, 'call', 'recording-summary')
+		},
+
 		isRecording() {
 			return this.conversation.callRecording === CALL.RECORDING.VIDEO
 				|| this.conversation.callRecording === CALL.RECORDING.AUDIO
@@ -324,16 +346,42 @@ export default {
 			emit('show-conversation-settings', { token: this.token })
 		},
 
-		async startRecording() {
-			const summaryTemplateId = await spawnDialog(RecordingSummaryTemplateDialog)
-			if (summaryTemplateId === undefined) {
-				return
-			}
+		startRecording() {
+			// The summary template of the conversation, or else the default
+			// template of the user, is used.
 			this.$store.dispatch('startCallRecording', {
 				token: this.token,
 				callRecording: CALL.RECORDING.VIDEO,
-				summaryTemplateId,
 			})
+		},
+
+		async changeSummaryTemplate() {
+			let current
+			try {
+				current = (await getConversationSummaryTemplate(this.token)).data.ocs.data
+			} catch {
+				showError(t('spreed', 'Could not load the summary template of the recording'))
+				return
+			}
+			const result = await spawnDialog(RecordingSummaryTemplatePicker, {
+				name: t('spreed', 'Summary template of this recording'),
+				description: t('spreed', 'The summary of this recording is generated with the chosen template.'),
+				confirmLabel: t('spreed', 'Use template'),
+				currentId: current.active?.id ?? null,
+				canRememberForConversation: true,
+			})
+			if (!result) {
+				return
+			}
+			try {
+				await setActiveSummaryTemplate(this.token, result.templateId)
+				if (result.rememberForConversation) {
+					await setConversationSummaryTemplate(this.token, result.templateId)
+				}
+				showSuccess(t('spreed', 'Summary template changed'))
+			} catch {
+				showError(t('spreed', 'The summary template could not be changed. The recording may already be stopped.'))
+			}
 		},
 
 		stopRecording() {

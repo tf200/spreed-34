@@ -41,6 +41,7 @@ class RecordingAiProcessor {
 		private readonly IConfig $serverConfig,
 		private readonly RecordingSummaryTemplateService $recordingSummaryTemplateService,
 		private readonly MultitrackTranscriptService $multitrack,
+		private readonly RecordingSummaryService $summaryService,
 		private readonly LoggerInterface $logger,
 	) {
 	}
@@ -288,6 +289,7 @@ class RecordingAiProcessor {
 				$operation->getTranscript(),
 				$this->multitrack->hasDocument($operation),
 			);
+			$this->summaryService->storeTranscript($operation->getRecordingFileId(), $transcript);
 			$this->transcriptService->store($operation, $transcript);
 			$this->resetErrors($operation);
 			if ($this->serverConfig->getAppValue('spreed', 'call_recording_summary', 'yes') === 'yes') {
@@ -316,7 +318,13 @@ class RecordingAiProcessor {
 
 		try {
 			$snapshot = $this->recordingSummaryTemplateService->findSnapshot($operation->getRecordingFileId());
-			$summary = $this->gemini->summarize($operation->getTranscript(), $snapshot['instructions']);
+			$summary = $this->summaryService->generate(
+				$operation->getOwnerId(),
+				$operation->getRoomToken(),
+				$operation->getRecordingFileId(),
+				$operation->getTranscript(),
+				$snapshot['instructions'],
+			);
 			$this->recordingService->storeTranscript(
 				$operation->getOwnerId(),
 				$operation->getRoomToken(),

@@ -8,9 +8,7 @@ import type { Conversation, Participant } from '../types/index.ts'
 import { showError } from '@nextcloud/dialogs'
 import { emit } from '@nextcloud/event-bus'
 import { t } from '@nextcloud/l10n'
-import { spawnDialog } from '@nextcloud/vue/functions/dialog'
 import { useStore } from 'vuex'
-import RecordingSummaryTemplateDialog from '../components/RecordingSummaryTemplateDialog.vue'
 import { ATTENDEE, CALL, CONVERSATION, PARTICIPANT } from '../constants.ts'
 import { callSIPDialOut } from '../services/callsService.ts'
 import { getTalkConfig } from '../services/CapabilitiesManager.ts'
@@ -125,15 +123,12 @@ export function useJoinCall() {
 		})
 
 		if (shouldStartRecording && getTalkConfig(token, 'call', 'recording')) {
-			const summaryTemplateId = await spawnDialog(RecordingSummaryTemplateDialog)
-			if (summaryTemplateId !== undefined) {
-				// Do not wait for async operation
-				vuexStore.dispatch('startCallRecording', {
-					token,
-					callRecording: CALL.RECORDING.VIDEO,
-					summaryTemplateId,
-				})
-			}
+			// The summary template of the conversation, or else the default
+			// template of the user, is used. Do not wait for async operation.
+			vuexStore.dispatch('startCallRecording', {
+				token,
+				callRecording: CALL.RECORDING.VIDEO,
+			})
 		}
 
 		if (isPhoneRoom) {

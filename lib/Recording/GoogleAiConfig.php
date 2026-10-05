@@ -16,6 +16,9 @@ class GoogleAiConfig {
 	// The GA model gemini-3.5-transcribe is documented, but not served yet.
 	public const DEFAULT_TRANSCRIPTION_MODEL = 'gemini-3.5-transcribe-preview';
 	public const DEFAULT_TRANSCRIPTION_LOCATION = 'global';
+	// gemini-2.5-flash-lite wrote some summaries in another language than
+	// the meeting, and the 2.5 models are deprecated.
+	public const DEFAULT_SUMMARY_MODEL = 'gemini-3.5-flash-lite';
 
 	public function __construct(
 		private readonly IAppConfig $appConfig,
@@ -53,6 +56,20 @@ class GoogleAiConfig {
 			throw new InvalidArgumentException('recording_google_transcription_invalid_configuration');
 		}
 		return $config;
+	}
+
+	/**
+	 * The Gemini model of the summaries, which runs with the location of
+	 * the transcript cleanup.
+	 *
+	 * @throws InvalidArgumentException
+	 */
+	public function getSummaryModel(): string {
+		$model = $this->appConfig->getAppValueString('recording_google_summary_model', self::DEFAULT_SUMMARY_MODEL);
+		if (!preg_match('/^[a-zA-Z0-9._-]{1,64}$/', $model)) {
+			throw new InvalidArgumentException('recording_google_summary_invalid_configuration');
+		}
+		return $model;
 	}
 
 	public static function isValidLanguage(string $language): bool {

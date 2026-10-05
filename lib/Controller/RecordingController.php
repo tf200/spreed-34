@@ -26,6 +26,7 @@ use OCA\Talk\Recording\RecordingFailedRequest;
 use OCA\Talk\Recording\RecordingRequest;
 use OCA\Talk\Recording\RecordingStartedRequest;
 use OCA\Talk\Recording\RecordingStoppedRequest;
+use OCA\Talk\Recording\RecordingSummaryService;
 use OCA\Talk\ResponseDefinitions;
 use OCA\Talk\Room;
 use OCA\Talk\Service\CertificateService;
@@ -33,6 +34,7 @@ use OCA\Talk\Service\ChecksumVerificationService;
 use OCA\Talk\Service\ParticipantService;
 use OCA\Talk\Service\RecordingArtifactService;
 use OCA\Talk\Service\RecordingService;
+use OCA\Talk\Service\RecordingSummaryTemplateService;
 use OCA\Talk\Service\RoomService;
 use OCA\Talk\Vendor\CuyZ\Valinor\Mapper\MappingError;
 use OCA\Talk\Vendor\CuyZ\Valinor\Mapper\Source\Source;
@@ -44,6 +46,7 @@ use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\OpenAPI;
 use OCP\AppFramework\Http\Attribute\PublicPage;
 use OCP\AppFramework\Http\Attribute\RequestHeader;
+use OCP\AppFramework\Http\Attribute\UserRateLimit;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\Http\Client\IClientService;
@@ -53,6 +56,7 @@ use Psr\Log\LoggerInterface;
 /**
  * @psalm-import-type TalkRecordingArtifact from ResponseDefinitions
  * @psalm-import-type TalkRecordingArtifactListItem from ResponseDefinitions
+ * @psalm-import-type TalkRecordingSummaryTemplateReference from ResponseDefinitions
  */
 class RecordingController extends AEnvironmentAwareOCSController {
 	public function __construct(
@@ -65,6 +69,8 @@ class RecordingController extends AEnvironmentAwareOCSController {
 		private readonly ParticipantService $participantService,
 		private readonly RecordingService $recordingService,
 		private readonly RecordingArtifactService $recordingArtifactService,
+		private readonly RecordingSummaryTemplateService $recordingSummaryTemplateService,
+		private readonly RecordingSummaryService $recordingSummaryService,
 		private readonly RoomService $roomService,
 		private readonly ITimeFactory $timeFactory,
 		private readonly ChecksumVerificationService $checksumVerificationService,
@@ -359,7 +365,7 @@ class RecordingController extends AEnvironmentAwareOCSController {
 	 *
 	 * @param int $status Type of the recording
 	 * @psalm-param Room::RECORDING_* $status
-	 * @param ?string $summaryTemplateId Summary template owned by the moderator, or null for the built-in default
+	 * @param ?string $summaryTemplateId Summary template, or null for the template of the conversation, or else the default template of the moderator
 	 * @return DataResponse<Http::STATUS_OK, null, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, array{error: string}, array{}>
 	 *
 	 * 200: Recording started successfully
@@ -374,6 +380,75 @@ class RecordingController extends AEnvironmentAwareOCSController {
 	public function start(int $status, ?string $summaryTemplateId = null): DataResponse {
 		try {
 			$this->recordingService->start($this->room, $status, $this->userId, $this->participant, $summaryTemplateId);
+		} catch (InvalidArgumentException $e) {
+			return new DataResponse(['error' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
+		}
+		return new DataResponse(null);
+	}
+
+	/**
+	 * Get the summary templates of the conversation
+	 *
+	 * @return DataResponse<Http::STATUS_OK, array{conversation: ?TalkRecordingSummaryTemplateReference, active: ?TalkRecordingSummaryTemplateReference}, array{}>
+	 *
+	 * 200: The template of the conversation, and of the recording in progress
+	 */
+	#[NoAdminRequired]
+	#[RequireLoggedInModeratorParticipant]
+	#[ApiRoute(verb: 'GET', url: '/api/{apiVersion}/recording/{token}/summary-template', requirements: [
+		'apiVersion' => '(v1)',
+		'token' => '[a-z0-9]{4,30}',
+	])]
+	public function getSummaryTemplate(): DataResponse {
+		$template = $this->recordingSummaryTemplateService->getRoomTemplate($this->room->getToken());
+		return new DataResponse([
+			'conversation' => $template === null ? null : ['id' => $template['id'], 'name' => $template['name']],
+			'active' => $this->recordingService->getActiveSummaryTemplate($this->room),
+		]);
+	}
+
+	/**
+	 * Set the summary template used for the recordings of the conversation
+	 *
+	 * @param ?string $templateId Template ID, or null to use the default template of the moderator starting the recording
+	 * @return DataResponse<Http::STATUS_OK, null, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, array{error: string}, array{}>
+	 *
+	 * 200: Template set
+	 * 400: Template can not be used
+	 */
+	#[NoAdminRequired]
+	#[RequireLoggedInModeratorParticipant]
+	#[ApiRoute(verb: 'PUT', url: '/api/{apiVersion}/recording/{token}/summary-template', requirements: [
+		'apiVersion' => '(v1)',
+		'token' => '[a-z0-9]{4,30}',
+	])]
+	public function setSummaryTemplate(?string $templateId = null): DataResponse {
+		try {
+			$this->recordingSummaryTemplateService->setRoomTemplate($this->room->getToken(), $templateId, (string)$this->userId);
+		} catch (\InvalidArgumentException $e) {
+			return new DataResponse(['error' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
+		}
+		return new DataResponse(null);
+	}
+
+	/**
+	 * Change the summary template of the recording in progress
+	 *
+	 * @param string $templateId Template ID
+	 * @return DataResponse<Http::STATUS_OK, null, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, array{error: string}, array{}>
+	 *
+	 * 200: Template changed
+	 * 400: No recording in progress or template can not be used
+	 */
+	#[NoAdminRequired]
+	#[RequireLoggedInModeratorParticipant]
+	#[ApiRoute(verb: 'PUT', url: '/api/{apiVersion}/recording/{token}/summary-template/active', requirements: [
+		'apiVersion' => '(v1)',
+		'token' => '[a-z0-9]{4,30}',
+	])]
+	public function setActiveSummaryTemplate(string $templateId): DataResponse {
+		try {
+			$this->recordingService->setActiveSummaryTemplate($this->room, $templateId, (string)$this->userId);
 		} catch (InvalidArgumentException $e) {
 			return new DataResponse(['error' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
 		}
@@ -711,6 +786,39 @@ class RecordingController extends AEnvironmentAwareOCSController {
 		}
 	}
 
+	/**
+	 * Generate a summary draft again with another template
+	 *
+	 * @param string $artifactId ID of the recording artifact
+	 * @param string $templateId Summary template ID
+	 * @param string $etag Expected file ETag
+	 * @return DataResponse<Http::STATUS_OK, TalkRecordingArtifact, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT|Http::STATUS_INTERNAL_SERVER_ERROR|Http::STATUS_SERVICE_UNAVAILABLE, array{error: string}, array{}>
+	 *
+	 * 200: Summary generated again
+	 * 400: Not a summary, the template can not be used or the transcript is no longer available
+	 * 404: Artifact not found
+	 * 409: Artifact changed or is being processed
+	 * 500: Summary could not be stored
+	 * 503: Summary could not be generated
+	 */
+	#[NoAdminRequired]
+	#[RequireLoggedInParticipant]
+	#[UserRateLimit(limit: 20, period: 3600)]
+	#[ApiRoute(verb: 'POST', url: '/api/{apiVersion}/recording/{token}/artifact/{artifactId}/regenerate', requirements: [
+		'apiVersion' => '(v1)',
+		'token' => '[a-z0-9]{4,30}',
+		'artifactId' => '\\d+',
+	])]
+	public function regenerateArtifact(string $artifactId, string $templateId, string $etag): DataResponse {
+		try {
+			return new DataResponse($this->recordingSummaryService->regenerate($this->getRoom(), $this->participant, $artifactId, $etag, $templateId));
+		} catch (RecordingArtifactException $e) {
+			return $this->artifactError($e);
+		} catch (\InvalidArgumentException $e) {
+			return new DataResponse(['error' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
+		}
+	}
+
 	private function artifactError(RecordingArtifactException $e): DataResponse {
 		$status = match ($e->getReason()) {
 			RecordingArtifactException::NOT_FOUND => Http::STATUS_NOT_FOUND,
@@ -718,7 +826,10 @@ class RecordingController extends AEnvironmentAwareOCSController {
 			RecordingArtifactException::EDITING,
 			RecordingArtifactException::PUBLISHING,
 			RecordingArtifactException::PUBLISHED => Http::STATUS_CONFLICT,
-			RecordingArtifactException::CONTENT => Http::STATUS_BAD_REQUEST,
+			RecordingArtifactException::CONTENT,
+			RecordingArtifactException::TYPE,
+			RecordingArtifactException::TRANSCRIPT_UNAVAILABLE => Http::STATUS_BAD_REQUEST,
+			RecordingArtifactException::GENERATION => Http::STATUS_SERVICE_UNAVAILABLE,
 			RecordingArtifactException::CONTENT_TOO_LARGE => Http::STATUS_REQUEST_ENTITY_TOO_LARGE,
 			RecordingArtifactException::CONVERSION => Http::STATUS_SERVICE_UNAVAILABLE,
 			RecordingArtifactException::QUOTA => Http::STATUS_INSUFFICIENT_STORAGE,

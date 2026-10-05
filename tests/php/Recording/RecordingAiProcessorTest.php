@@ -17,6 +17,7 @@ use OCA\Talk\Recording\GoogleSpeechClient;
 use OCA\Talk\Recording\MultitrackTranscriptService;
 use OCA\Talk\Recording\RecordingAiProcessor;
 use OCA\Talk\Recording\RecordingAiTranscriptService;
+use OCA\Talk\Recording\RecordingSummaryService;
 use OCA\Talk\Service\RecordingService;
 use OCA\Talk\Service\RecordingSummaryTemplateService;
 use OCP\AppFramework\Utility\ITimeFactory;
@@ -42,6 +43,7 @@ class RecordingAiProcessorTest extends TestCase {
 	private IConfig&MockObject $serverConfig;
 	private RecordingSummaryTemplateService&MockObject $recordingSummaryTemplateService;
 	private MultitrackTranscriptService&MockObject $multitrack;
+	private RecordingSummaryService&MockObject $summaryService;
 	private RecordingAiProcessor $processor;
 
 	protected function setUp(): void {
@@ -65,6 +67,7 @@ class RecordingAiProcessorTest extends TestCase {
 			'id' => '7', 'name' => 'Executive', 'instructions' => 'Focus on risks and decisions.',
 		]);
 		$this->multitrack = $this->createMock(MultitrackTranscriptService::class);
+		$this->summaryService = $this->createMock(RecordingSummaryService::class);
 		$this->processor = new RecordingAiProcessor(
 			$this->mapper,
 			$this->rootFolder,
@@ -77,6 +80,7 @@ class RecordingAiProcessorTest extends TestCase {
 			$this->serverConfig,
 			$this->recordingSummaryTemplateService,
 			$this->multitrack,
+			$this->summaryService,
 			$this->createMock(LoggerInterface::class),
 		);
 	}
@@ -177,7 +181,8 @@ class RecordingAiProcessorTest extends TestCase {
 		$this->transcriptService->expects($this->once())->method('normalize')->with($operation)->willReturn('Raw meeting transcript');
 		$this->gemini->expects($this->once())->method('standardizeTranscript')->with('Raw meeting transcript')->willReturn('Clean meeting transcript');
 		$this->transcriptService->expects($this->once())->method('store')->with($operation, 'Clean meeting transcript');
-		$this->gemini->expects($this->once())->method('summarize')->with('Clean meeting transcript', 'Focus on risks and decisions.')->willReturn('Meeting summary');
+		$this->summaryService->expects($this->once())->method('storeTranscript')->with(123, 'Clean meeting transcript');
+		$this->summaryService->expects($this->once())->method('generate')->with('owner', 'room', 123, 'Clean meeting transcript', 'Focus on risks and decisions.')->willReturn('Meeting summary');
 		$this->recordingService->expects($this->once())->method('storeTranscript')
 			->with('owner', 'room', 123, 'Meeting summary', 'summary', false);
 		$states = [];
@@ -218,12 +223,13 @@ class RecordingAiProcessorTest extends TestCase {
 			$this->serverConfig,
 			$this->recordingSummaryTemplateService,
 			$this->multitrack,
+			$this->summaryService,
 			$this->createMock(LoggerInterface::class),
 		);
 		$this->transcriptService->expects($this->once())->method('normalize')->willReturn('Raw meeting transcript');
 		$this->gemini->expects($this->once())->method('standardizeTranscript')->with('Raw meeting transcript')->willReturn('Clean meeting transcript');
 		$this->transcriptService->expects($this->once())->method('store')->with($operation, 'Clean meeting transcript');
-		$this->gemini->expects($this->never())->method('summarize');
+		$this->summaryService->expects($this->never())->method('generate');
 		$states = [];
 		$this->mapper->expects($this->exactly(2))->method('updateClaimed')
 			->willReturnCallback(function (RecordingAiOperation $updated) use (&$states): bool {
@@ -246,7 +252,7 @@ class RecordingAiProcessorTest extends TestCase {
 		$operation->setSpeechResponse('{}');
 		$this->expectStageClaims($operation);
 		$this->transcriptService->method('normalize')->willThrowException(new \RuntimeException('normalization unavailable'));
-		$this->gemini->expects($this->never())->method('summarize');
+		$this->summaryService->expects($this->never())->method('generate');
 		$this->mapper->expects($this->once())->method('updateClaimed')
 			->willReturnCallback(function (RecordingAiOperation $updated): bool {
 				$this->assertSame(RecordingAiOperation::STATE_MAPPING, $updated->getState());
@@ -292,7 +298,7 @@ class RecordingAiProcessorTest extends TestCase {
 	public function testMalformedSummaryFailsWithoutCallingGemini(): void {
 		$operation = $this->createOperation(RecordingAiOperation::STATE_SUMMARIZING);
 		$this->expectStageClaims($operation);
-		$this->gemini->expects($this->never())->method('summarize');
+		$this->summaryService->expects($this->never())->method('generate');
 		$this->mapper->expects($this->once())->method('updateClaimed')
 			->willReturnCallback(function (RecordingAiOperation $updated): bool {
 				$this->assertSame(RecordingAiOperation::STATE_FAILED, $updated->getState());
@@ -471,7 +477,7 @@ class RecordingAiProcessorTest extends TestCase {
 		$this->gemini->expects($this->once())->method('standardizeTranscript')
 			->with("**Alice** · 00:01\nHello", true)
 			->willReturn("**Alice** · 00:01\nHello.");
-		$this->gemini->method('summarize')->willReturn('Summary');
+		$this->summaryService->method('generate')->willReturn('Summary');
 		$this->mapper->method('updateClaimed')->willReturn(true);
 
 		$this->processor->process(42);

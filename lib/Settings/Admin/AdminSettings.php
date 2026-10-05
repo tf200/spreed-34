@@ -464,6 +464,7 @@ class AdminSettings implements ISettings {
 			'serviceAccountConfigured' => $this->appConfig->getAppValueString('recording_google_service_account', lazy: true) !== '',
 			'multitrackEnabled' => $this->appConfig->getAppValueBool('recording_google_multitrack_enabled'),
 			'transcriptionModel' => $this->appConfig->getAppValueString('recording_google_transcription_model', GoogleAiConfig::DEFAULT_TRANSCRIPTION_MODEL),
+			'summaryModel' => $this->appConfig->getAppValueString('recording_google_summary_model', GoogleAiConfig::DEFAULT_SUMMARY_MODEL),
 		]);
 	}
 

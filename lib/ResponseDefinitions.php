@@ -45,13 +45,38 @@ namespace OCA\Talk;
  *     notificationTimestamp: int,
  * }
  *
+ * @psalm-type TalkRecordingSummaryTemplateSection = array{
+ *     title: string,
+ *     description: string,
+ * }
+ *
+ * @psalm-type TalkRecordingSummaryTemplateDefinition = array{
+ *     sections: list<TalkRecordingSummaryTemplateSection>,
+ *     length: 'brief'|'standard'|'detailed',
+ *     style: 'bullets'|'paragraphs',
+ *     // Language code of the summary, or empty for the language of the meeting
+ *     language: string,
+ *     actionItemsTable: bool,
+ *     transcriptLinks: bool,
+ *     extraInstructions: string,
+ * }
+ *
  * @psalm-type TalkRecordingSummaryTemplate = array{
- *     id: numeric-string,
- *     ownerId: string,
+ *     // Numeric for organization and personal templates, `builtin-…` for built-in ones
+ *     id: string,
+ *     source: 'builtin'|'organization'|'personal',
  *     name: string,
- *     instructions: string,
- *     createdAt: int,
+ *     description: string,
+ *     definition: TalkRecordingSummaryTemplateDefinition,
+ *     canEdit: bool,
+ *     // Whether it is the default template of the user
+ *     isDefault: bool,
  *     updatedAt: int,
+ * }
+ *
+ * @psalm-type TalkRecordingSummaryTemplateReference = array{
+ *     id: ?string,
+ *     name: string,
  * }
  *
  * @psalm-type TalkBan = array{
@@ -799,6 +824,8 @@ namespace OCA\Talk;
  *             recording: bool,
  *             // Whether recording consent is required (see [constants list](https://nextcloud-talk.readthedocs.io/en/latest/constants#recording-consent-required))
  *             recording-consent: int,
+ *             // Whether recordings are summarized with AI
+ *             recording-summary?: bool,
  *             // List of supported reaction emojis during calls
  *             supported-reactions: list<string>,
  *             // List of file names relative to the spreed/img/backgrounds/ web path, e.g. `2_home.jpg`

@@ -210,6 +210,35 @@ class ParticipantTracksStore {
 		}
 	}
 
+	/**
+	 * Stores the cleaned transcript of the recording, which summaries are
+	 * generated from, so a summary can be generated again later.
+	 */
+	public function storeTranscriptMarkdown(int $recordingFileId, string $markdown): void {
+		$folder = $this->getRootFolder(self::TRANSCRIPTS_FOLDER);
+		$name = $recordingFileId . '.md';
+		if ($folder->fileExists($name)) {
+			$folder->getFile($name)->putContent($markdown);
+		} else {
+			$folder->newFile($name, $markdown);
+		}
+	}
+
+	/**
+	 * @throws NotFoundException
+	 */
+	public function getTranscriptMarkdown(int $recordingFileId): string {
+		return $this->getRootFolder(self::TRANSCRIPTS_FOLDER)->getFile($recordingFileId . '.md')->getContent();
+	}
+
+	public function deleteTranscriptMarkdown(int $recordingFileId): void {
+		try {
+			$this->getRootFolder(self::TRANSCRIPTS_FOLDER)->getFile($recordingFileId . '.md')->delete();
+		} catch (NotFoundException) {
+			// Nothing stored
+		}
+	}
+
 	private function getRootFolder(string $name = self::FOLDER): ISimpleFolder {
 		try {
 			return $this->appData->getFolder($name);

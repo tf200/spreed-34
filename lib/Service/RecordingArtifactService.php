@@ -164,6 +164,52 @@ class RecordingArtifactService {
 		}
 	}
 
+	/**
+	 * Replaces the content of a summary draft with a generated one.
+	 *
+	 * The draft is locked like during an edit while the content is generated,
+	 * so it can not be edited or published meanwhile.
+	 *
+	 * @param callable(RecordingArtifact): string $generate
+	 * @return array{id: string, type: string, state: string, fileName: string, content: string, etag: string, publishedFileId: ?string, publishedMessageId: ?string}
+	 */
+	public function regenerate(Room $room, Participant $participant, string $artifactId, string $etag, callable $generate): array {
+		[$artifact, $file] = $this->resolveDraft($room, $participant, $artifactId, false);
+		if ($artifact->getType() !== RecordingArtifact::TYPE_SUMMARY) {
+			throw new RecordingArtifactException(RecordingArtifactException::TYPE);
+		}
+		$this->assertEditableState($artifact);
+		if (!hash_equals($file->getEtag(), $etag) || !hash_equals($artifact->getSourceEtag(), $etag)) {
+			throw new RecordingArtifactException(RecordingArtifactException::STALE_REVISION);
+		}
+
+		$claimToken = bin2hex(random_bytes(16));
+		if (!$this->mapper->claimForEditing($artifactId, $artifact->getOwnerId(), $etag, $claimToken, $this->timeFactory->getDateTime())) {
+			throw new RecordingArtifactException(RecordingArtifactException::EDITING);
+		}
+
+		try {
+			$content = $generate($artifact);
+			$this->validateContent($content);
+			$file->putContent($content);
+			if (!$this->mapper->finishEditing($artifactId, $artifact->getOwnerId(), $claimToken, $file->getEtag(), $this->timeFactory->getDateTime())) {
+				throw new \RuntimeException('Could not finish artifact regeneration');
+			}
+			return $this->format($this->mapper->findById($artifactId), $file);
+		} catch (\Throwable $e) {
+			try {
+				$this->mapper->releaseClaim($artifactId, $claimToken, $file->getEtag(), $this->timeFactory->getDateTime());
+			} catch (\Throwable $rollbackError) {
+				$this->logger->error('Could not release recording artifact regeneration claim', ['exception' => $rollbackError]);
+			}
+			if ($e instanceof RecordingArtifactException) {
+				throw $e;
+			}
+			$this->logger->error('Could not regenerate recording artifact', ['exception' => $e]);
+			throw new RecordingArtifactException(RecordingArtifactException::STORAGE);
+		}
+	}
+
 	/** @return array{id: string, type: string, state: string, fileName: string, content: string, etag: string, publishedFileId: ?string, publishedMessageId: ?string} */
 	public function publish(Room $room, Participant $participant, string $artifactId, string $etag): array {
 		$artifact = $this->resolveArtifact($room, $participant, $artifactId);

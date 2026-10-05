@@ -107,6 +107,7 @@ class SettingsController extends OCSController {
 	 * @param bool $removeServiceAccount Whether to remove the stored credential
 	 * @param bool $multitrackEnabled Whether to transcribe recordings per participant track
 	 * @param string $transcriptionModel Gemini Transcribe model to transcribe participant tracks
+	 * @param string $summaryModel Gemini model to summarize recordings
 	 * @return DataResponse<Http::STATUS_OK, null, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, null, array{}>
 	 *
 	 * 200: Settings updated
@@ -127,6 +128,7 @@ class SettingsController extends OCSController {
 		bool $removeServiceAccount = false,
 		bool $multitrackEnabled = false,
 		string $transcriptionModel = GoogleAiConfig::DEFAULT_TRANSCRIPTION_MODEL,
+		string $summaryModel = GoogleAiConfig::DEFAULT_SUMMARY_MODEL,
 	): DataResponse {
 		if (!preg_match('/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/', $project)
 			|| !preg_match('/^[a-z][a-z0-9-]{1,31}$/', $location)
@@ -135,7 +137,8 @@ class SettingsController extends OCSController {
 			|| !preg_match('/^[a-zA-Z0-9._-]{1,64}$/', $speechModel)
 			|| !preg_match('/^(?:global|[a-z]+-[a-z]+[0-9])$/', $geminiLocation)
 			|| !preg_match('/^[a-zA-Z0-9._-]{1,64}$/', $geminiModel)
-			|| !preg_match('/^[a-zA-Z0-9._-]{1,64}$/', $transcriptionModel)) {
+			|| !preg_match('/^[a-zA-Z0-9._-]{1,64}$/', $transcriptionModel)
+			|| !preg_match('/^[a-zA-Z0-9._-]{1,64}$/', $summaryModel)) {
 			return new DataResponse(null, Http::STATUS_BAD_REQUEST);
 		}
 
@@ -154,7 +157,7 @@ class SettingsController extends OCSController {
 			}
 		}
 
-		$values = compact('project', 'location', 'bucket', 'language', 'speechModel', 'geminiLocation', 'geminiModel', 'transcriptionModel');
+		$values = compact('project', 'location', 'bucket', 'language', 'speechModel', 'geminiLocation', 'geminiModel', 'transcriptionModel', 'summaryModel');
 		foreach ($values as $key => $value) {
 			$this->config->setAppValue('spreed', 'recording_google_' . strtolower((string)preg_replace('/(?<!^)[A-Z]/', '_$0', $key)), $value);
 		}

@@ -113,8 +113,8 @@ class RecordingServiceTest extends TestCase {
 		$this->participantTracksStore = $this->createMock(ParticipantTracksStore::class);
 		$this->recordingSummaryTemplateService->method('snapshot')->willReturn([
 			'id' => null,
-			'name' => RecordingSummaryTemplateService::DEFAULT_NAME,
-			'instructions' => RecordingSummaryTemplateService::DEFAULT_INSTRUCTIONS,
+			'name' => 'General meeting',
+			'instructions' => 'Summarize the meeting.',
 		]);
 
 		$this->recordingService = new RecordingService(
@@ -465,6 +465,27 @@ class RecordingServiceTest extends TestCase {
 		$this->notificationManager->expects($this->once())->method('notify');
 
 		$this->recordingService->finishUpload($room, $owner, 'name.ogg');
+	}
+
+	public function testSummaryTemplateCanOnlyBeChangedWhileRecording(): void {
+		$room = $this->createMock(Room::class);
+		$room->method('getToken')->willReturn('room');
+		$this->appConfig->method('getAppValueString')->with('recsummary/room')->willReturn('');
+		$this->appConfig->expects($this->never())->method('setAppValueString');
+		$this->expectException(\InvalidArgumentException::class);
+		$this->expectExceptionMessage('recording');
+
+		$this->recordingService->setActiveSummaryTemplate($room, 'builtin-standup', 'moderator');
+	}
+
+	public function testChangesSummaryTemplateOfRecordingInProgress(): void {
+		$room = $this->createMock(Room::class);
+		$room->method('getToken')->willReturn('room');
+		$this->appConfig->method('getAppValueString')->with('recsummary/room')->willReturn('{"id":"builtin-general","name":"General meeting","instructions":"A"}');
+		$this->appConfig->expects($this->once())->method('setAppValueString')
+			->with('recsummary/room', '{"id":null,"name":"General meeting","instructions":"Summarize the meeting."}', true, true);
+
+		$this->recordingService->setActiveSummaryTemplate($room, 'builtin-standup', 'moderator');
 	}
 
 	public function testFinishUploadStoresNamesOfParticipantTracks(): void {

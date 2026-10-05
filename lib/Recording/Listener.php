@@ -16,6 +16,7 @@ use OCA\Talk\Events\CallEndedEvent;
 use OCA\Talk\Events\CallEndedForEveryoneEvent;
 use OCA\Talk\Events\RoomDeletedEvent;
 use OCA\Talk\Model\RecordingArtifactMapper;
+use OCA\Talk\Model\RecordingRoomTemplateMapper;
 use OCA\Talk\Room;
 use OCA\Talk\Service\ConsentService;
 use OCA\Talk\Service\RecordingService;
@@ -34,6 +35,7 @@ class Listener implements IEventListener {
 		private readonly RecordingService $recordingService,
 		private readonly ConsentService $consentService,
 		private readonly RecordingArtifactMapper $recordingArtifactMapper,
+		private readonly RecordingRoomTemplateMapper $recordingRoomTemplateMapper,
 		private readonly LoggerInterface $logger,
 	) {
 	}
@@ -99,6 +101,7 @@ class Listener implements IEventListener {
 	protected function roomDeleted(RoomDeletedEvent $event): void {
 		$this->consentService->deleteByRoom($event->getRoom());
 		$this->recordingArtifactMapper->deleteByRoomToken($event->getRoom()->getToken());
+		$this->recordingRoomTemplateMapper->deleteByRoomToken($event->getRoom()->getToken());
 	}
 
 	protected function endRecordingOnCallEnd(ACallEndedEvent $event): void {

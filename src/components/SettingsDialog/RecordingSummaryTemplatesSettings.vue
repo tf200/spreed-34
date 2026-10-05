@@ -5,130 +5,93 @@ import type { RecordingSummaryTemplate } from '../../services/recordingSummaryTe
 
 import { showError } from '@nextcloud/dialogs'
 import { t } from '@nextcloud/l10n'
-import { onMounted, ref } from 'vue'
+import { spawnDialog } from '@nextcloud/vue/functions/dialog'
+import { computed, onMounted, ref } from 'vue'
 import NcButton from '@nextcloud/vue/components/NcButton'
-import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon'
-import NcTextArea from '@nextcloud/vue/components/NcTextArea'
-import NcTextField from '@nextcloud/vue/components/NcTextField'
-import IconDelete from 'vue-material-design-icons/DeleteOutline.vue'
-import IconPlus from 'vue-material-design-icons/Plus.vue'
-import { createRecordingSummaryTemplate, deleteRecordingSummaryTemplate, getRecordingSummaryTemplates, updateRecordingSummaryTemplate } from '../../services/recordingSummaryTemplateService.ts'
+import NcSelect from '@nextcloud/vue/components/NcSelect'
+import IconTextBoxEditOutline from 'vue-material-design-icons/TextBoxEditOutline.vue'
+import RecordingSummaryTemplatesManager from '../RecordingSummaryTemplates/RecordingSummaryTemplatesManager.vue'
+import { getRecordingSummaryTemplates, setDefaultRecordingSummaryTemplate } from '../../services/recordingSummaryTemplateService.ts'
+import { getSourceLabel } from '../RecordingSummaryTemplates/summaryTemplates.ts'
 
 const templates = ref<RecordingSummaryTemplate[]>([])
 const loading = ref(true)
 const saving = ref(false)
-const formOpen = ref(false)
-const editingId = ref<string | null>(null)
-const name = ref('')
-const instructions = ref('')
+
+const options = computed(() => templates.value.map((template) => ({
+	id: template.id,
+	label: template.name,
+	source: getSourceLabel(template.source),
+})))
+const defaultTemplate = computed(() => options.value.find(({ id }) => id === templates.value.find(({ isDefault }) => isDefault)?.id) ?? null)
 
 onMounted(load)
 
-/** Load the current user's templates. */
+/** Load the templates. */
 async function load() {
 	try {
 		templates.value = (await getRecordingSummaryTemplates()).data.ocs.data
 	} catch {
-		showError(t('spreed', 'Could not load recording summary templates'))
+		showError(t('spreed', 'Could not load the summary templates'))
 	} finally {
 		loading.value = false
 	}
 }
-/**
- * Populate or reset the template editor.
- *
- * @param template Template to edit, if any
- */
-function edit(template?: RecordingSummaryTemplate) {
-	formOpen.value = true
-	editingId.value = template?.id ?? null
-	name.value = template?.name ?? ''
-	instructions.value = template?.instructions ?? ''
-}
 
 /**
- * Close and reset the template form.
+ * Set the default template.
+ *
+ * @param option Selected option
  */
-function cancelEditing() {
-	formOpen.value = false
-	editingId.value = null
-	name.value = ''
-	instructions.value = ''
-}
-/** Save the template currently in the editor. */
-async function save() {
-	if (!name.value.trim() || !instructions.value.trim()) {
+async function setDefault(option: { id: string } | null) {
+	if (!option) {
 		return
 	}
 	saving.value = true
 	try {
-		if (editingId.value) {
-			await updateRecordingSummaryTemplate(editingId.value, name.value.trim(), instructions.value.trim())
-		} else {
-			await createRecordingSummaryTemplate(name.value.trim(), instructions.value.trim())
-		}
-		cancelEditing()
-		await load()
+		await setDefaultRecordingSummaryTemplate(option.id)
+		templates.value = templates.value.map((template) => ({ ...template, isDefault: template.id === option.id }))
 	} catch {
-		showError(t('spreed', 'Could not save recording summary template'))
+		showError(t('spreed', 'Could not set the default template'))
 	} finally {
 		saving.value = false
 	}
 }
-/**
- * Delete a template from the server and local list.
- *
- * @param template Template to delete
- */
-async function remove(template: RecordingSummaryTemplate) {
-	try {
-		await deleteRecordingSummaryTemplate(template.id)
-		templates.value = templates.value.filter(({ id }) => id !== template.id)
-	} catch {
-		showError(t('spreed', 'Could not delete recording summary template'))
-	}
+
+/** Open the template manager, and show its changes afterwards. */
+async function manage() {
+	await spawnDialog(RecordingSummaryTemplatesManager)
+	await load()
 }
 </script>
 
 <template>
-	<NcLoadingIcon v-if="loading" />
-	<div v-else class="summary-templates">
-		<p>{{ t('spreed', 'Create private instructions used to generate summaries of your recordings.') }}</p>
-		<div v-for="template in templates" :key="template.id" class="summary-templates__item">
-			<NcButton variant="tertiary" wide @click="edit(template)">
-				{{ template.name }}
-			</NcButton>
-			<NcButton :aria-label="t('spreed', 'Delete {name}', { name: template.name })" variant="tertiary" @click="remove(template)">
-				<template #icon>
-					<IconDelete :size="20" />
-				</template>
-			</NcButton>
-		</div>
-		<NcButton v-if="!formOpen" variant="secondary" @click="edit()">
+	<div class="summary-templates">
+		<p class="summary-templates__hint">
+			{{ t('spreed', 'Templates decide what the AI summary of a recorded call contains. A conversation can have its own template, otherwise your default is used.') }}
+		</p>
+		<NcSelect
+			:modelValue="defaultTemplate"
+			:inputLabel="t('spreed', 'Default template')"
+			:options="options"
+			:loading="loading || saving"
+			:disabled="loading || saving"
+			:clearable="false"
+			label="label"
+			@update:modelValue="setDefault">
+			<template #option="{ label, source }">
+				<span class="summary-templates__option">
+					<span>{{ label }}</span>
+					<span class="summary-templates__option-source">{{ source }}</span>
+				</span>
+			</template>
+		</NcSelect>
+		<NcButton variant="secondary" wide @click="manage">
 			<template #icon>
-				<IconPlus :size="20" />
-			</template>{{ t('spreed', 'Add template') }}
+				<IconTextBoxEditOutline :size="20" />
+			</template>
+			{{ t('spreed', 'Manage summary templates') }}
 		</NcButton>
-		<form v-else class="summary-templates__form" @submit.prevent="save">
-			<NcTextField
-				v-model="name"
-				:label="t('spreed', 'Template name')"
-				:maxlength="250"
-				required />
-			<NcTextArea
-				v-model="instructions"
-				:label="t('spreed', 'Summary instructions')"
-				:maxlength="10000"
-				required />
-			<div class="summary-templates__actions">
-				<NcButton @click="cancelEditing">
-					{{ t('spreed', 'Cancel') }}
-				</NcButton>
-				<NcButton type="submit" variant="primary" :disabled="saving || !name.trim() || !instructions.trim()">
-					{{ t('spreed', 'Save') }}
-				</NcButton>
-			</div>
-		</form>
 	</div>
 </template>
 
@@ -136,23 +99,21 @@ async function remove(template: RecordingSummaryTemplate) {
 .summary-templates {
 	display: flex;
 	flex-direction: column;
-	gap: 12px;
-}
+	gap: calc(3 * var(--default-grid-baseline));
 
-.summary-templates__item {
-	display: flex;
-	align-items: center;
-}
+	&__hint {
+		color: var(--color-text-maxcontrast);
+	}
 
-.summary-templates__form {
-	display: flex;
-	flex-direction: column;
-	gap: 12px;
-}
+	&__option {
+		display: flex;
+		justify-content: space-between;
+		gap: var(--default-grid-baseline);
+		width: 100%;
+	}
 
-.summary-templates__actions {
-	display: flex;
-	justify-content: flex-end;
-	gap: 8px;
+	&__option-source {
+		color: var(--color-text-maxcontrast);
+	}
 }
 </style>

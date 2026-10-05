@@ -66,7 +66,7 @@
 		</NcAppSettingsSection>
 
 		<NcAppSettingsSection
-			v-if="!isGuest && isRecordingEnabled"
+			v-if="!isGuest && isRecordingSummaryEnabled"
 			id="recording_summary_templates"
 			:name="t('spreed', 'Recording summaries')">
 			<RecordingSummaryTemplatesSettings />
@@ -183,7 +183,7 @@ const disableKeyboardShortcuts = OCP.Accessibility.disableKeyboardShortcuts()
 
 const supportTypingStatus = getTalkConfig('local', 'chat', 'typing-privacy') !== undefined
 const isCallEnabled = getTalkConfig('local', 'call', 'enabled')
-const isRecordingEnabled = !!getTalkConfig('local', 'call', 'recording')
+const isRecordingSummaryEnabled = !!getTalkConfig('local', 'call', 'recording') && !!getTalkConfig('local', 'call', 'recording-summary')
 const supportStartWithoutMedia = getTalkConfig('local', 'call', 'start-without-media') !== undefined
 const supportDefaultBlurVirtualBackground = getTalkConfig('local', 'call', 'blur-virtual-background') !== undefined
 const supportLiveTranslation = getTalkConfig('local', 'call', 'live-translation') === true
@@ -221,7 +221,7 @@ export default {
 			supportTypingStatus,
 			customSettingsSections,
 			isCallEnabled,
-			isRecordingEnabled,
+			isRecordingSummaryEnabled,
 			supportStartWithoutMedia,
 			supportDefaultBlurVirtualBackground,
 			supportLiveTranslation,

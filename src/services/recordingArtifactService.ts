@@ -77,9 +77,25 @@ function publishRecordingArtifact(token: string, artifactId: string, etag: strin
 	})
 }
 
+/**
+ * Generate a summary draft again with another template.
+ *
+ * @param token Conversation token
+ * @param artifactId Artifact ID
+ * @param templateId Summary template ID
+ * @param etag Expected ETag
+ */
+function regenerateRecordingArtifact(token: string, artifactId: string, templateId: string, etag: string) {
+	return axios.post<OcsResponse<RecordingArtifact>>(generateOcsUrl('apps/spreed/api/v1/recording/{token}/artifact/{artifactId}/regenerate', { token, artifactId }), {
+		templateId,
+		etag,
+	})
+}
+
 export {
 	getRecordingArtifact,
 	getRecordingArtifacts,
 	publishRecordingArtifact,
+	regenerateRecordingArtifact,
 	updateRecordingArtifact,
 }

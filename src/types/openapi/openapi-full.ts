@@ -1190,6 +1190,41 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/ocs/v2.php/apps/spreed/api/{apiVersion}/recording/{token}/summary-template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the summary templates of the conversation */
+        get: operations["recording-get-summary-template"];
+        /** Set the summary template used for the recordings of the conversation */
+        put: operations["recording-set-summary-template"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ocs/v2.php/apps/spreed/api/{apiVersion}/recording/{token}/summary-template/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Change the summary template of the recording in progress */
+        put: operations["recording-set-active-summary-template"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ocs/v2.php/apps/spreed/api/{apiVersion}/recording/{token}/notification": {
         parameters: {
             query?: never;
@@ -1276,6 +1311,23 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/ocs/v2.php/apps/spreed/api/{apiVersion}/recording/{token}/artifact/{artifactId}/regenerate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate a summary draft again with another template */
+        post: operations["recording-regenerate-artifact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ocs/v2.php/apps/spreed/api/{apiVersion}/recording/summary-templates": {
         parameters: {
             query?: never;
@@ -1283,10 +1335,13 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        /** List recording summary templates */
+        /**
+         * List the summary templates the user can use
+         * @description Personal templates come first, then organization and built-in templates.
+         */
         get: operations["recording_summary_template-index"];
         put?: never;
-        /** Create a recording summary template */
+        /** Create a summary template */
         post: operations["recording_summary_template-create"];
         delete?: never;
         options?: never;
@@ -1302,11 +1357,48 @@ export type paths = {
             cookie?: never;
         };
         get?: never;
-        /** Update a recording summary template */
+        /** Update a summary template */
         put: operations["recording_summary_template-update"];
         post?: never;
-        /** Delete a recording summary template */
+        /** Delete a summary template */
         delete: operations["recording_summary_template-destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ocs/v2.php/apps/spreed/api/{apiVersion}/recording/summary-templates/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the default summary template of the user
+         * @description It is used for recordings in conversations without a summary template.
+         */
+        put: operations["recording_summary_template-set-default"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ocs/v2.php/apps/spreed/api/{apiVersion}/recording/summary-templates/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Summarize a sample meeting with a template */
+        post: operations["recording_summary_template-preview"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2852,6 +2944,8 @@ export type components = {
                      * @description Whether recording consent is required (see [constants list](https://nextcloud-talk.readthedocs.io/en/latest/constants#recording-consent-required))
                      */
                     "recording-consent": number;
+                    /** @description Whether recordings are summarized with AI */
+                    "recording-summary"?: boolean;
                     /** @description List of supported reaction emojis during calls */
                     "supported-reactions": string[];
                     /** @description List of file names relative to the spreed/img/backgrounds/ web path, e.g. `2_home.jpg` */
@@ -3584,14 +3678,38 @@ export type components = {
             notificationTimestamp: number;
         };
         RecordingSummaryTemplate: {
+            /** @description Numeric for organization and personal templates, `builtin-…` for built-in ones */
             id: string;
-            ownerId: string;
+            /** @enum {string} */
+            source: "builtin" | "organization" | "personal";
             name: string;
-            instructions: string;
-            /** Format: int64 */
-            createdAt: number;
+            description: string;
+            definition: components["schemas"]["RecordingSummaryTemplateDefinition"];
+            canEdit: boolean;
+            /** @description Whether it is the default template of the user */
+            isDefault: boolean;
             /** Format: int64 */
             updatedAt: number;
+        };
+        RecordingSummaryTemplateDefinition: {
+            sections: components["schemas"]["RecordingSummaryTemplateSection"][];
+            /** @enum {string} */
+            length: "brief" | "standard" | "detailed";
+            /** @enum {string} */
+            style: "bullets" | "paragraphs";
+            /** @description Language code of the summary, or empty for the language of the meeting */
+            language: string;
+            actionItemsTable: boolean;
+            transcriptLinks: boolean;
+            extraInstructions: string;
+        };
+        RecordingSummaryTemplateReference: {
+            id: string | null;
+            name: string;
+        };
+        RecordingSummaryTemplateSection: {
+            title: string;
+            description: string;
         };
         RichObjectParameter: {
             /** @description Object type (see [Rich Object String](https://github.com/nextcloud/server/issues/1706)) */
@@ -10160,7 +10278,7 @@ export interface operations {
                      */
                     status: number;
                     /**
-                     * @description Summary template owned by the moderator, or null for the built-in default
+                     * @description Summary template, or null for the template of the conversation, or else the default template of the moderator
                      * @default null
                      */
                     summaryTemplateId?: string | null;
@@ -10244,6 +10362,193 @@ export interface operations {
                 };
             };
             /** @description Stopping recording is not possible */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Current user is not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "recording-get-summary-template": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required to be true for the API request to pass */
+                "OCS-APIRequest": boolean;
+            };
+            path: {
+                apiVersion: "v1";
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The template of the conversation, and of the recording in progress */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                conversation: components["schemas"]["RecordingSummaryTemplateReference"] | null;
+                                active: components["schemas"]["RecordingSummaryTemplateReference"] | null;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Current user is not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "recording-set-summary-template": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required to be true for the API request to pass */
+                "OCS-APIRequest": boolean;
+            };
+            path: {
+                apiVersion: "v1";
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description Template ID, or null to use the default template of the moderator starting the recording
+                     * @default null
+                     */
+                    templateId?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Template set */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description Template can not be used */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Current user is not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "recording-set-active-summary-template": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required to be true for the API request to pass */
+                "OCS-APIRequest": boolean;
+            };
+            path: {
+                apiVersion: "v1";
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Template ID */
+                    templateId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Template changed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description No recording in progress or template can not be used */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10814,6 +11119,142 @@ export interface operations {
             };
         };
     };
+    "recording-regenerate-artifact": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required to be true for the API request to pass */
+                "OCS-APIRequest": boolean;
+            };
+            path: {
+                apiVersion: "v1";
+                token: string;
+                /** @description ID of the recording artifact */
+                artifactId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Summary template ID */
+                    templateId: string;
+                    /** @description Expected file ETag */
+                    etag: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Summary generated again */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: components["schemas"]["RecordingArtifact"];
+                        };
+                    };
+                };
+            };
+            /** @description Not a summary, the template can not be used or the transcript is no longer available */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Current user is not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description Artifact not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Artifact changed or is being processed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Summary could not be stored */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Summary could not be generated */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    };
     "recording_summary_template-index": {
         parameters: {
             query?: never;
@@ -10875,8 +11316,20 @@ export interface operations {
                 "application/json": {
                     /** @description Template name */
                     name: string;
-                    /** @description Instructions for generating the summary */
-                    instructions: string;
+                    /** @description Sections and options of the summary */
+                    definition: {
+                        [key: string]: Record<string, never>;
+                    };
+                    /**
+                     * @description Short description of the template
+                     * @default
+                     */
+                    description?: string;
+                    /**
+                     * @description Whether all users can use the template (administrators only)
+                     * @default false
+                     */
+                    organization?: boolean;
                 };
             };
         };
@@ -10895,7 +11348,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Name or instructions are invalid */
+            /** @description A field is invalid */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10946,8 +11399,15 @@ export interface operations {
                 "application/json": {
                     /** @description Template name */
                     name: string;
-                    /** @description Instructions for generating the summary */
-                    instructions: string;
+                    /** @description Sections and options of the summary */
+                    definition: {
+                        [key: string]: Record<string, never>;
+                    };
+                    /**
+                     * @description Short description of the template
+                     * @default
+                     */
+                    description?: string;
                 };
             };
         };
@@ -10966,7 +11426,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Name or instructions are invalid */
+            /** @description A field is invalid */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10996,7 +11456,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Recording summary template not found */
+            /** @description Recording summary template not found or not editable */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11056,7 +11516,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Recording summary template not found */
+            /** @description Recording summary template not found or not editable */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11066,6 +11526,161 @@ export interface operations {
                         ocs: {
                             meta: components["schemas"]["OCSMeta"];
                             data: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "recording_summary_template-set-default": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required to be true for the API request to pass */
+                "OCS-APIRequest": boolean;
+            };
+            path: {
+                apiVersion: "v1";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Template ID */
+                    templateId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Default template set */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description Template can not be used */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Current user is not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "recording_summary_template-preview": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required to be true for the API request to pass */
+                "OCS-APIRequest": boolean;
+            };
+            path: {
+                apiVersion: "v1";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Sections and options of the summary */
+                    definition: {
+                        [key: string]: Record<string, never>;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Summary of the sample meeting returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                summary: string;
+                                transcript: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description A field is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Current user is not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description The summary could not be generated */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ocs: {
+                            meta: components["schemas"]["OCSMeta"];
+                            data: {
+                                error: string;
+                            };
                         };
                     };
                 };
@@ -16631,6 +17246,8 @@ export interface operations {
                     multitrackEnabled?: boolean;
                     /** @description Gemini Transcribe model to transcribe participant tracks */
                     transcriptionModel?: string;
+                    /** @description Gemini model to summarize recordings */
+                    summaryModel?: string;
                 };
             };
         };

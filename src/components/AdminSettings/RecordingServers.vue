@@ -99,6 +99,18 @@
 					{{ t('spreed', 'Automatically summarize call recordings with transcription and summary providers') }}
 				</NcCheckboxRadioSwitch>
 
+				<div v-if="recordingSummaryEnabled" class="summary-templates">
+					<p class="summary-templates__hint">
+						{{ t('spreed', 'Organization summary templates can be chosen by all users, next to the built-in templates and their personal ones.') }}
+					</p>
+					<NcButton variant="secondary" @click="manageSummaryTemplates">
+						<template #icon>
+							<IconTextBoxEditOutline :size="20" />
+						</template>
+						{{ t('spreed', 'Manage summary templates') }}
+					</NcButton>
+				</div>
+
 				<h3>{{ t('spreed', 'Google Cloud transcription and summaries') }}</h3>
 				<NcCheckboxRadioSwitch v-model="google.enabled" type="switch" :disabled="loading">
 					{{ t('spreed', 'Use Google Cloud for recording transcription and summaries') }}
@@ -137,7 +149,12 @@
 				<NcTextField
 					v-model="google.geminiModel"
 					class="form__textfield"
-					:label="t('spreed', 'Gemini model')"
+					:label="t('spreed', 'Gemini model for transcript cleanup')"
+					labelVisible />
+				<NcTextField
+					v-model="google.summaryModel"
+					class="form__textfield"
+					:label="t('spreed', 'Gemini model for summaries')"
 					labelVisible />
 				<NcTextArea
 					v-model="serviceAccountJson"
@@ -173,6 +190,7 @@ import { showError, showSuccess } from '@nextcloud/dialogs'
 import { formatFileSize } from '@nextcloud/files'
 import { loadState } from '@nextcloud/initial-state'
 import { t } from '@nextcloud/l10n'
+import { spawnDialog } from '@nextcloud/vue/functions/dialog'
 import debounce from 'debounce'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
@@ -182,7 +200,9 @@ import NcPasswordField from '@nextcloud/vue/components/NcPasswordField'
 import NcTextArea from '@nextcloud/vue/components/NcTextArea'
 import NcTextField from '@nextcloud/vue/components/NcTextField'
 import IconPlus from 'vue-material-design-icons/Plus.vue'
+import IconTextBoxEditOutline from 'vue-material-design-icons/TextBoxEditOutline.vue'
 import RecordingServer from '../../components/AdminSettings/RecordingServer.vue'
+import RecordingSummaryTemplatesManager from '../RecordingSummaryTemplates/RecordingSummaryTemplatesManager.vue'
 import TransitionWrapper from '../UIShared/TransitionWrapper.vue'
 import { CONFIG } from '../../constants.ts'
 import { saveRecordingGoogleSettings } from '../../services/adminSettingsService.js'
@@ -207,6 +227,7 @@ export default {
 		NcTextArea,
 		NcTextField,
 		IconPlus,
+		IconTextBoxEditOutline,
 		RecordingServer,
 		TransitionWrapper,
 	},
@@ -268,6 +289,10 @@ export default {
 	},
 
 	methods: {
+		manageSummaryTemplates() {
+			spawnDialog(RecordingSummaryTemplatesManager)
+		},
+
 		t,
 		removeServer(index) {
 			this.servers.splice(index, 1)
@@ -384,5 +409,16 @@ h3 {
 .consent-description {
 	margin-bottom: 12px;
 	opacity: 0.7;
+}
+.summary-templates {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: calc(2 * var(--default-grid-baseline));
+	margin-block: calc(2 * var(--default-grid-baseline));
+
+	&__hint {
+		color: var(--color-text-maxcontrast);
+	}
 }
 </style>

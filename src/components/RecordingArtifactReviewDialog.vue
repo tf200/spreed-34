@@ -15,10 +15,14 @@ import NcButton from '@nextcloud/vue/components/NcButton'
 import NcDialog from '@nextcloud/vue/components/NcDialog'
 import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon'
 import NcTextArea from '@nextcloud/vue/components/NcTextArea'
+import IconAutorenew from 'vue-material-design-icons/Autorenew.vue'
+import RecordingSummaryTemplatePicker from './RecordingSummaryTemplates/RecordingSummaryTemplatePicker.vue'
 import ConfirmDialog from './UIShared/ConfirmDialog.vue'
+import { getTalkConfig } from '../services/CapabilitiesManager.ts'
 import {
 	getRecordingArtifact,
 	publishRecordingArtifact,
+	regenerateRecordingArtifact,
 	updateRecordingArtifact,
 } from '../services/recordingArtifactService.ts'
 
@@ -41,6 +45,7 @@ const savedContent = ref('')
 const isLoading = ref(true)
 const isSaving = ref(false)
 const isPublishing = ref(false)
+const isRegenerating = ref(false)
 const hasConflict = ref(false)
 const loadError = ref(false)
 const operationError = ref<'save' | 'publish' | 'conversion' | null>(null)
@@ -51,11 +56,13 @@ let textEditor: Awaited<ReturnType<NonNullable<typeof window.OCA.Text>['createEd
 let editorReadOnly = false
 let loadRequest = 0
 
-const isBusy = computed(() => isLoading.value || isSaving.value || isPublishing.value)
+const isBusy = computed(() => isLoading.value || isSaving.value || isPublishing.value || isRegenerating.value)
 const isDirty = computed(() => content.value !== savedContent.value)
 const isPublished = computed(() => artifact.value?.state === 'published')
 const isDraft = computed(() => artifact.value?.state === 'draft')
 const isPublishingState = computed(() => artifact.value?.state === 'publishing')
+const canRegenerate = computed(() => artifact.value?.type === 'summary'
+	&& !!getTalkConfig(props.token, 'call', 'recording-summary'))
 const title = computed(() => artifact.value?.type === 'summary'
 	? t('spreed', 'Review call summary')
 	: t('spreed', 'Review transcript'))
@@ -166,6 +173,49 @@ async function save() {
 		}
 	} finally {
 		isSaving.value = false
+	}
+}
+
+/** Generate the summary again with a template chosen by the user. */
+async function regenerate() {
+	if (!artifact.value || !isDraft.value || isBusy.value || hasConflict.value) {
+		return
+	}
+	const result = await spawnDialog(RecordingSummaryTemplatePicker, {
+		name: t('spreed', 'Regenerate summary'),
+		description: isDirty.value
+			? t('spreed', 'The summary is generated again from the transcript with the chosen template. It replaces this draft, including your unsaved corrections.')
+			: t('spreed', 'The summary is generated again from the transcript with the chosen template. It replaces this draft, including your corrections.'),
+		confirmLabel: t('spreed', 'Regenerate'),
+	})
+	if (!result || !artifact.value) {
+		return
+	}
+
+	isRegenerating.value = true
+	operationError.value = null
+	try {
+		const response = await regenerateRecordingArtifact(props.token, props.artifactId, result.templateId, artifact.value.etag)
+		artifact.value = response.data.ocs.data
+		content.value = response.data.ocs.data.content
+		savedContent.value = response.data.ocs.data.content
+		textEditor?.setContent(content.value)
+		showSuccess(t('spreed', 'Summary regenerated'))
+	} catch (error: unknown) {
+		if (setConflict(error)) {
+			showError(conflictMessage.value)
+			return
+		}
+		const reason = isAxiosError(error) ? (error.response?.data?.ocs?.data?.error ?? error.response?.data?.error) : null
+		if (reason === 'transcript') {
+			showError(t('spreed', 'The transcript of this recording is no longer available, so the summary can not be generated again.'))
+		} else if (isAxiosError(error) && error.response?.status === 429) {
+			showError(t('spreed', 'The summary was generated again too often. Please try again later.'))
+		} else {
+			showError(t('spreed', 'The summary could not be generated again. Please try again later.'))
+		}
+	} finally {
+		isRegenerating.value = false
 	}
 }
 
@@ -351,6 +401,10 @@ async function close(open = false) {
 					{{ t('spreed', 'Retry') }}
 				</NcButton>
 			</div>
+			<div v-if="isRegenerating" class="recording-artifact-review__status" role="status">
+				<span>{{ t('spreed', 'Generating the summary again. This can take a minute …') }}</span>
+				<NcLoadingIcon :size="20" />
+			</div>
 			<div v-if="!isPublished" class="recording-artifact-review__editor" dir="auto">
 				<div v-if="textEditorAvailable" ref="editorElement" class="recording-artifact-review__text-editor" />
 				<NcTextArea
@@ -363,6 +417,18 @@ async function close(open = false) {
 			</div>
 		</div>
 		<template v-if="artifact && isDraft" #actions>
+			<NcButton
+				v-if="canRegenerate"
+				class="recording-artifact-review__regenerate"
+				variant="tertiary"
+				:disabled="isBusy || hasConflict"
+				@click="regenerate">
+				<template #icon>
+					<NcLoadingIcon v-if="isRegenerating" :size="20" />
+					<IconAutorenew v-else :size="20" />
+				</template>
+				{{ t('spreed', 'Regenerate with …') }}
+			</NcButton>
 			<NcButton :disabled="isBusy || !isDirty || hasConflict" @click="save">
 				<NcLoadingIcon v-if="isSaving" />
 				{{ t('spreed', 'Save draft') }}
@@ -392,6 +458,10 @@ async function close(open = false) {
 		padding: 12px;
 		border-radius: var(--border-radius-large);
 		background: var(--color-background-dark);
+	}
+
+	&__regenerate {
+		margin-inline-end: auto;
 	}
 
 	&__content {

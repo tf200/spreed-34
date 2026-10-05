@@ -37,6 +37,7 @@
 				<MentionsSettings v-if="!isNoteToSelf && !isOneToOne" :token="token" :canModerate="canFullModerate" />
 				<LinkShareSettings v-if="!isNoteToSelf" :token="token" :canModerate="canFullModerate" />
 				<RecordingConsentSettings v-if="!isNoteToSelf && !isOneToOneFormer && recordingConsentAvailable" :token="token" :canModerate="selfIsOwnerOrModerator" />
+				<RecordingSummarySettings v-if="!isNoteToSelf && !isOneToOneFormer && !isGuest && selfIsOwnerOrModerator && recordingSummaryAvailable" :token="token" />
 				<ExpirationSettings v-if="!isOneToOneFormer && hasMessageExpirationFeature" :token="token" :canModerate="selfIsOwnerOrModerator" />
 				<BanSettings v-if="supportBanV1 && canFullModerate" :token="token" />
 			</NcAppSettingsSection>
@@ -153,6 +154,7 @@ import MatterbridgeSettings from './Matterbridge/MatterbridgeSettings.vue'
 import MentionsSettings from './MentionsSettings.vue'
 import NotificationsSettings from './NotificationsSettings.vue'
 import RecordingConsentSettings from './RecordingConsentSettings.vue'
+import RecordingSummarySettings from './RecordingSummarySettings.vue'
 import SipSettings from './SipSettings.vue'
 import { CALL, CONFIG, CONVERSATION, PARTICIPANT } from '../../constants.ts'
 import {
@@ -189,6 +191,7 @@ export default {
 		NcCheckboxRadioSwitch,
 		NotificationsSettings,
 		RecordingConsentSettings,
+		RecordingSummarySettings,
 		SipSettings,
 	},
 
@@ -299,6 +302,12 @@ export default {
 				&& this.canFullModerate
 				&& (getTalkConfig(this.token, 'call', 'breakout-rooms') || false)
 				&& this.conversation.type === CONVERSATION.TYPE.GROUP
+		},
+
+		recordingSummaryAvailable() {
+			return this.isCallEnabled
+				&& !!getTalkConfig(this.token, 'call', 'recording')
+				&& !!getTalkConfig(this.token, 'call', 'recording-summary')
 		},
 
 		recordingConsentAvailable() {

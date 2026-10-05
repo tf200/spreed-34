@@ -203,6 +203,10 @@
                                         "format": "int64",
                                         "description": "Whether recording consent is required (see [constants list](https://nextcloud-talk.readthedocs.io/en/latest/constants#recording-consent-required))"
                                     },
+                                    "recording-summary": {
+                                        "type": "boolean",
+                                        "description": "Whether recordings are summarized with AI"
+                                    },
                                     "supported-reactions": {
                                         "type": "array",
                                         "description": "List of supported reaction emojis during calls",
@@ -2151,6 +2155,10 @@
                                     "transcriptionModel": {
                                         "type": "string",
                                         "description": "Gemini Transcribe model to transcribe participant tracks"
+                                    },
+                                    "summaryModel": {
+                                        "type": "string",
+                                        "description": "Gemini model to summarize recordings"
                                     }
                                 }
                             }

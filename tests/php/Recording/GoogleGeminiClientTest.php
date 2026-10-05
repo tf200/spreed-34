@@ -22,7 +22,33 @@ use OCP\Http\Client\IResponse;
 use Test\TestCase;
 
 class GoogleGeminiClientTest extends TestCase {
-	public function testUsesFlashLiteWithBoundedOutput(): void {
+	public function testUsesSummaryModelWithBoundedOutput(): void {
+		$config = $this->createMock(GoogleAiConfig::class);
+		$config->method('getValidated')->willReturn([
+			'project' => 'valid-project', 'location' => 'eu', 'bucket' => 'valid-bucket', 'language' => 'en-US',
+			'speechModel' => 'chirp_3', 'geminiLocation' => 'global', 'geminiModel' => 'gemini-2.5-flash-lite', 'serviceAccount' => [],
+		]);
+		$config->method('getSummaryModel')->willReturn('gemini-3.5-flash-lite');
+		$token = $this->createMock(GoogleAuthTokenProvider::class);
+		$token->method('getAccessToken')->willReturn('token');
+		$response = $this->createMock(IResponse::class);
+		$response->method('getBody')->willReturn('{"candidates":[{"content":{"parts":[{"text":"## Overview\\nShort summary"}]}}]}');
+		$client = $this->createMock(IClient::class);
+		$client->expects($this->once())->method('post')->with(
+			'https://aiplatform.googleapis.com/v1/projects/valid-project/locations/global/publishers/google/models/gemini-3.5-flash-lite:generateContent',
+			$this->callback(fn (array $options): bool => $options['json']['generationConfig']['maxOutputTokens'] === 8192
+				&& str_contains($options['json']['systemInstruction']['parts'][0]['text'], 'untrusted data')
+				&& str_contains($options['json']['contents'][0]['parts'][0]['text'], "SUMMARY TEMPLATE:\nFocus on decisions")
+				&& str_contains($options['json']['contents'][0]['parts'][0]['text'], "<meeting>\nDate: 2026-10-05 (Monday)\n</meeting>")
+				&& str_contains($options['json']['contents'][0]['parts'][0]['text'], "<transcript>\nTranscript\n</transcript>")),
+		)->willReturn($response);
+		$clientService = $this->createMock(IClientService::class);
+		$clientService->method('newClient')->willReturn($client);
+
+		$this->assertSame("## Overview\nShort summary", (new GoogleGeminiClient($config, $token, $clientService))->summarize('Transcript', 'Focus on decisions', 'Date: 2026-10-05 (Monday)'));
+	}
+
+	public function testRejectsSummaryThatWasCutOff(): void {
 		$config = $this->createMock(GoogleAiConfig::class);
 		$config->method('getValidated')->willReturn([
 			'project' => 'valid-project', 'location' => 'eu', 'bucket' => 'valid-bucket', 'language' => 'en-US',
@@ -31,19 +57,15 @@ class GoogleGeminiClientTest extends TestCase {
 		$token = $this->createMock(GoogleAuthTokenProvider::class);
 		$token->method('getAccessToken')->willReturn('token');
 		$response = $this->createMock(IResponse::class);
-		$response->method('getBody')->willReturn('{"candidates":[{"content":{"parts":[{"text":"## Overview\\nShort summary"}]}}]}');
+		$response->method('getBody')->willReturn('{"candidates":[{"finishReason":"MAX_TOKENS","content":{"parts":[{"text":"## Overview\\nShort"}]}}]}');
 		$client = $this->createMock(IClient::class);
-		$client->expects($this->once())->method('post')->with(
-			'https://aiplatform.googleapis.com/v1/projects/valid-project/locations/global/publishers/google/models/gemini-2.5-flash-lite:generateContent',
-			$this->callback(fn (array $options): bool => $options['json']['generationConfig']['maxOutputTokens'] === 1024
-				&& str_contains($options['json']['systemInstruction']['parts'][0]['text'], 'untrusted data')
-				&& str_contains($options['json']['contents'][0]['parts'][0]['text'], "SUMMARY TEMPLATE:\nFocus on decisions")
-				&& str_contains($options['json']['contents'][0]['parts'][0]['text'], "<transcript>\nTranscript\n</transcript>")),
-		)->willReturn($response);
+		$client->method('post')->willReturn($response);
 		$clientService = $this->createMock(IClientService::class);
 		$clientService->method('newClient')->willReturn($client);
 
-		$this->assertSame("## Overview\nShort summary", (new GoogleGeminiClient($config, $token, $clientService))->summarize('Transcript', 'Focus on decisions'));
+		$this->expectException(GoogleApiException::class);
+		$this->expectExceptionMessage('Gemini summary output was cut off');
+		(new GoogleGeminiClient($config, $token, $clientService))->summarize('Transcript', 'Focus on decisions');
 	}
 
 	public function testStandardizesTranscriptWithStrictInstructionsAndPreservedFormat(): void {
