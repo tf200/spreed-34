@@ -99,6 +99,9 @@ PROMPT;
 				'headers' => ['Authorization' => 'Bearer ' . $this->tokenProvider->getAccessToken()],
 				'json' => $json,
 				'timeout' => $timeout,
+				// Guzzle sends "Expect: 100-continue" for bodies over 1 MB,
+				// which Vertex AI rejects with HTTP 417.
+				'expect' => false,
 			]);
 			$payload = json_decode((string)$response->getBody(), true, 32, JSON_THROW_ON_ERROR);
 		} catch (RequestException $e) {

@@ -79,6 +79,8 @@ class GeminiTranscribeClientTest extends TestCase {
 				$this->assertSame([['role' => 'user', 'parts' => [['inlineData' => ['mimeType' => 'audio/ogg', 'data' => base64_encode('OggS')]]]]], $options['json']['contents']);
 				// No language codes enable the language detection.
 				$this->assertSame(['audioTranscriptionConfig' => ['wordTimestamp' => true, 'mode' => 'VERBATIM']], $options['json']['generationConfig']);
+				// Audio over 1 MB was rejected with HTTP 417 otherwise.
+				$this->assertFalse($options['expect']);
 				return true;
 			}),
 		)->willReturn($response);

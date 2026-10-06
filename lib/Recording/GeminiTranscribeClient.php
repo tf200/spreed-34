@@ -56,6 +56,9 @@ class GeminiTranscribeClient implements TrackTranscriptionProvider {
 				'headers' => ['Authorization' => 'Bearer ' . $this->tokenProvider->getAccessToken()],
 				'json' => $json,
 				'timeout' => self::TIMEOUT,
+				// Guzzle sends "Expect: 100-continue" for bodies over 1 MB,
+				// which Vertex AI rejects with HTTP 417.
+				'expect' => false,
 			]);
 			$payload = json_decode((string)$response->getBody(), true, 64, JSON_THROW_ON_ERROR);
 		} catch (RequestException $e) {
