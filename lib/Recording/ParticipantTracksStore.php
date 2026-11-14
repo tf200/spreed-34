@@ -32,6 +32,8 @@ class ParticipantTracksStore {
 	private const MAX_ENTRIES = 2000;
 	// Gemini Transcribe accepts up to 15 minutes per request with word timestamps.
 	private const MAX_CHUNK_DURATION = 900;
+	/** Seconds a participant track may start before the mixed recording. */
+	private const MAX_EARLY_SPEECH = 600;
 	private const CHUNK_FILE_PATTERN = '/^chunk-([0-9]{1,10}-[0-9]{1,6})\.ogg$/';
 
 	public function __construct(
@@ -344,21 +346,26 @@ class ParticipantTracksStore {
 				if (!is_array($piece)) {
 					throw new InvalidArgumentException('participant_tracks_invalid_manifest');
 				}
-				foreach (['chunkStart', 'trackStart', 'recordingStart', 'duration'] as $field) {
+				foreach (['chunkStart', 'trackStart', 'duration'] as $field) {
 					if (!$this->isTime($piece[$field] ?? null)) {
 						throw new InvalidArgumentException('participant_tracks_invalid_manifest');
 					}
+				}
+				$recordingStart = $piece['recordingStart'] ?? null;
+				if (!(is_int($recordingStart) || is_float($recordingStart))
+					|| !$this->isTime((float)$recordingStart + self::MAX_EARLY_SPEECH)) {
+					throw new InvalidArgumentException('participant_tracks_invalid_manifest');
 				}
 				if ((float)$piece['chunkStart'] <= $previousChunkStart) {
 					throw new InvalidArgumentException('participant_tracks_invalid_manifest');
 				}
 				$previousChunkStart = (float)$piece['chunkStart'];
-				$cutMap[] = [
+				$cutMap[] = $this->trimBeforeRecording([
 					'chunkStart' => (float)$piece['chunkStart'],
 					'trackStart' => (float)$piece['trackStart'],
-					'recordingStart' => (float)$piece['recordingStart'],
+					'recordingStart' => (float)$recordingStart,
 					'duration' => (float)$piece['duration'],
-				];
+				]);
 			}
 
 			$chunks[$chunk['id']] = [
@@ -375,6 +382,27 @@ class ParticipantTracksStore {
 			'version' => 1,
 			'segments' => array_values($segments),
 			'chunks' => array_values($chunks),
+		];
+	}
+
+	/**
+	 * A track can start before the mixed recording, so speech aligned to the
+	 * track can start before it too. That part of the piece is cut off; its
+	 * words are moved to the start of the recording by the merger.
+	 *
+	 * @param array{chunkStart: float, trackStart: float, recordingStart: float, duration: float} $piece
+	 * @return array{chunkStart: float, trackStart: float, recordingStart: float, duration: float}
+	 */
+	private function trimBeforeRecording(array $piece): array {
+		if ($piece['recordingStart'] >= 0) {
+			return $piece;
+		}
+		$shift = min(-$piece['recordingStart'], $piece['duration']);
+		return [
+			'chunkStart' => $piece['chunkStart'] + $shift,
+			'trackStart' => $piece['trackStart'] + $shift,
+			'recordingStart' => 0.0,
+			'duration' => $piece['duration'] - $shift,
 		];
 	}
 

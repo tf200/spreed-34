@@ -140,8 +140,11 @@ class ParticipantTracksStoreTest extends TestCase {
 		$manifest['chunks'][0]['cutMap'][1]['chunkStart'] = 0;
 		$cases['unordered cut map'] = [$manifest];
 		$manifest = self::manifest();
-		$manifest['chunks'][0]['cutMap'][0]['recordingStart'] = -1;
+		$manifest['chunks'][0]['cutMap'][0]['trackStart'] = -1;
 		$cases['negative time'] = [$manifest];
+		$manifest = self::manifest();
+		$manifest['chunks'][0]['cutMap'][0]['recordingStart'] = -601;
+		$cases['speech long before the recording'] = [$manifest];
 		$manifest = self::manifest();
 		$manifest['segments'][0]['displayName'] = ['Alice'];
 		$cases['invalid name'] = [$manifest];
@@ -155,6 +158,18 @@ class ParticipantTracksStoreTest extends TestCase {
 	public function testValidateManifestRejectsInvalidContent(array $manifest): void {
 		$this->expectException(\InvalidArgumentException::class);
 		$this->store->validateManifest(json_encode($manifest), ['chunk-1-0.ogg' => true, 'chunk-1-1.ogg' => true]);
+	}
+
+	public function testValidateManifestTrimsSpeechBeforeTheRecording(): void {
+		$manifest = self::manifest();
+		$manifest['chunks'][0]['cutMap'][0] = ['chunkStart' => 0, 'trackStart' => 1.98, 'recordingStart' => -0.952, 'duration' => 6.0];
+		$manifest['chunks'][0]['cutMap'][1] = ['chunkStart' => 7, 'trackStart' => 20, 'recordingStart' => -30, 'duration' => 2];
+
+		$validated = $this->store->validateManifest(json_encode($manifest), ['chunk-1-0.ogg' => true]);
+
+		$cutMap = $validated['chunks'][0]['cutMap'];
+		$this->assertEqualsWithDelta(['chunkStart' => 0.952, 'trackStart' => 2.932, 'recordingStart' => 0.0, 'duration' => 5.048], $cutMap[0], 0.0001);
+		$this->assertEqualsWithDelta(['chunkStart' => 9.0, 'trackStart' => 22.0, 'recordingStart' => 0.0, 'duration' => 0.0], $cutMap[1], 0.0001);
 	}
 
 	public function testSetDisplayNames(): void {

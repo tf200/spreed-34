@@ -326,6 +326,24 @@ class RecordingAiProcessorTest extends TestCase {
 		$this->processor->process(42);
 	}
 
+	public function testTranscriptIsKeptAsRecognizedWhenCleanupKeepsFailing(): void {
+		$operation = $this->createOperation(RecordingAiOperation::STATE_CLEANING);
+		$operation->setTranscript('Raw meeting transcript');
+		$operation->setAttempts(2);
+		$this->expectStageClaims($operation);
+		$this->gemini->method('standardizeTranscript')->willThrowException(new \OCA\Talk\Recording\GoogleApiException('invalid response'));
+		$this->transcriptService->expects($this->once())->method('store')->with($operation, 'Raw meeting transcript');
+		$this->mapper->expects($this->once())->method('updateClaimed')
+			->willReturnCallback(function (RecordingAiOperation $updated): bool {
+				$this->assertSame(RecordingAiOperation::STATE_SUMMARIZING, $updated->getState());
+				$this->assertSame(0, $updated->getAttempts());
+				// Stop after this stage.
+				return false;
+			});
+
+		$this->processor->process(42);
+	}
+
 	public function testSubmittedOperationResumesPollingPipeline(): void {
 		$operation = $this->createOperation(RecordingAiOperation::STATE_SUBMITTED);
 		$operation->setSpeechOperation('speech-operation');

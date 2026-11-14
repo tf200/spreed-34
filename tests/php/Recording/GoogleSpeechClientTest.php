@@ -52,6 +52,21 @@ class GoogleSpeechClientTest extends TestCase {
 		$this->assertSame(['done' => false], $this->createClient($client)->poll(self::OPERATION));
 	}
 
+	public function testPollReturnsTheErrorOfAFailedFile(): void {
+		$response = $this->createMock(IResponse::class);
+		$response->method('getBody')->willReturn(json_encode([
+			'done' => true,
+			'response' => ['results' => ['gs://valid-bucket/a.webm' => ['error' => ['code' => 3, 'message' => 'Audio too long']]]],
+		]));
+		$client = $this->createMock(IClient::class);
+		$client->method('get')->willReturn($response);
+
+		$this->assertSame(
+			['done' => true, 'error' => ['code' => 3, 'message' => 'Audio too long']],
+			$this->createClient($client)->poll(self::OPERATION),
+		);
+	}
+
 	private function createClient(IClient $client): GoogleSpeechClient {
 		$config = $this->createMock(GoogleAiConfig::class);
 		$config->method('getValidated')->willReturn([

@@ -70,6 +70,13 @@ class GoogleSpeechClient {
 		if (!is_array($payload['response'] ?? null)) {
 			throw new GoogleApiException('Speech recognition operation response was invalid');
 		}
+		// A failed file does not fail the batch operation, its error is in
+		// the result of the file (for example when the audio is too long).
+		foreach ((array)($payload['response']['results'] ?? []) as $result) {
+			if (is_array($result) && is_array($result['error'] ?? null)) {
+				return ['done' => true, 'error' => $result['error']];
+			}
+		}
 		return ['done' => true, 'response' => $payload['response']];
 	}
 

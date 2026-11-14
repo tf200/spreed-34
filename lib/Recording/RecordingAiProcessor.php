@@ -28,6 +28,8 @@ class RecordingAiProcessor {
 	// take up to the timeout of GeminiTranscribeClient after that.
 	private const TRACKS_LEASE_SECONDS = 600;
 	private const TRACKS_BUDGET_SECONDS = 240;
+	/** Attempts of the transcript cleanup before the transcript is kept as recognized. */
+	private const CLEANUP_ATTEMPTS = 3;
 
 	public function __construct(
 		private readonly RecordingAiOperationMapper $mapper,
@@ -238,7 +240,8 @@ class RecordingAiProcessor {
 				return false;
 			}
 			if (isset($result['error'])) {
-				$this->fail($operation, $claimToken, 'speech_failed', 'Speech recognition failed');
+				$detail = is_string($result['error']['message'] ?? null) ? ': ' . mb_substr($result['error']['message'], 0, 500) : '';
+				$this->fail($operation, $claimToken, 'speech_failed', 'Speech recognition failed' . $detail);
 				return false;
 			}
 
@@ -285,10 +288,23 @@ class RecordingAiProcessor {
 		}
 
 		try {
-			$transcript = $this->gemini->standardizeTranscript(
-				$operation->getTranscript(),
-				$this->multitrack->hasDocument($operation),
-			);
+			try {
+				$transcript = $this->gemini->standardizeTranscript(
+					$operation->getTranscript(),
+					$this->multitrack->hasDocument($operation),
+				);
+			} catch (GoogleApiException $e) {
+				if ($operation->getAttempts() + 1 < self::CLEANUP_ATTEMPTS) {
+					throw $e;
+				}
+				// The cleanup only improves the readability, so the transcript
+				// is kept as recognized instead of failing it.
+				$this->logger->warning('Transcript cleanup failed repeatedly, keeping the transcript as recognized', [
+					'operationId' => $operation->getId(),
+					'exception' => $e,
+				]);
+				$transcript = $operation->getTranscript();
+			}
 			$this->summaryService->storeTranscript($operation->getRecordingFileId(), $transcript);
 			$this->transcriptService->store($operation, $transcript);
 			$this->resetErrors($operation);
