@@ -421,11 +421,34 @@ class RecordingService {
 			return;
 		}
 
+		$recordingFileId = (int)$fileNode->getId();
 		try {
-			$this->participantTracksStore->storeUploadedArchive((int)$fileNode->getId(), $participantTracks);
-			$this->storeParticipantTrackNames($room, (int)$fileNode->getId());
+			$skippedPieces = $this->participantTracksStore->storeUploadedArchive($recordingFileId, $participantTracks);
+			$this->storeParticipantTrackNames($room, $recordingFileId);
 		} catch (\Throwable $e) {
-			$this->logger->warning('Participant tracks of the recording could not be stored [ conversation: "' . $room->getToken() . '" ]', ['exception' => $e]);
+			$this->logger->error('Participant tracks of the recording could not be stored, the upload is kept to import it again [ conversation: "' . $room->getToken() . '", recording file: ' . $recordingFileId . ' ]', ['exception' => $e]);
+			$this->keepRejectedParticipantTracks($recordingFileId, $participantTracks, $e->getMessage());
+			return;
+		}
+
+		if ($skippedPieces > 0) {
+			// The words of the skipped pieces may get wrong times, so the
+			// complete upload is kept too.
+			$this->logger->warning('Participant tracks of the recording contained ' . $skippedPieces . ' invalid pieces, the upload is kept to import it again [ conversation: "' . $room->getToken() . '", recording file: ' . $recordingFileId . ' ]');
+			$this->keepRejectedParticipantTracks($recordingFileId, $participantTracks, 'participant_tracks_skipped_pieces: ' . $skippedPieces);
+		}
+	}
+
+	private function keepRejectedParticipantTracks(int $recordingFileId, array $participantTracks, string $reason): void {
+		if (($participantTracks['error'] ?? null) !== UPLOAD_ERR_OK
+			|| !is_string($participantTracks['tmp_name'] ?? null)
+			|| !is_uploaded_file($participantTracks['tmp_name'])) {
+			return;
+		}
+		try {
+			$this->participantTracksStore->keepRejectedUpload($recordingFileId, $participantTracks['tmp_name'], $reason);
+		} catch (\Throwable $e) {
+			$this->logger->error('Participant tracks of the recording could not be kept [ recording file: ' . $recordingFileId . ' ]', ['exception' => $e]);
 		}
 	}
 

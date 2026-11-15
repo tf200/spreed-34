@@ -17248,6 +17248,16 @@ export interface operations {
                     transcriptionModel?: string;
                     /** @description Gemini model to summarize recordings */
                     summaryModel?: string;
+                    /**
+                     * Format: int64
+                     * @description Days the participant tracks are kept after the transcription succeeded
+                     */
+                    tracksRetentionCompletedDays?: number;
+                    /**
+                     * Format: int64
+                     * @description Days the participant tracks are kept after the transcription failed
+                     */
+                    tracksRetentionFailedDays?: number;
                 };
             };
         };

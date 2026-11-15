@@ -13,17 +13,23 @@ use InvalidArgumentException;
 use OCP\Files\IAppData;
 use OCP\Files\NotFoundException;
 use OCP\Files\SimpleFS\ISimpleFolder;
+use OCP\ITempManager;
 
 /**
  * Stores the per participant speech chunks uploaded by the recording server.
  *
  * The recording server uploads a zip archive with a "manifest.json" and one
  * Ogg Opus file per chunk. The archive is validated and extracted to the app
- * data (outside the files of the users), in a folder per recording file, until
- * the chunks have been transcribed.
+ * data (outside the files of the users), in a folder per recording file. They
+ * are kept after the transcription, so it can be done again, until the
+ * CleanupParticipantTracks job deletes them.
+ *
+ * An archive that can not be used is kept as uploaded, so it can be imported
+ * again once Talk can read it ("occ talk:recording:retranscribe").
  */
 class ParticipantTracksStore {
 	private const FOLDER = 'recording-tracks';
+	private const REJECTED_FOLDER = 'recording-tracks-rejected';
 	private const TRANSCRIPTS_FOLDER = 'recording-transcripts';
 	private const MANIFEST = 'manifest.json';
 	private const MAX_ARCHIVE_SIZE = 512 * 1024 * 1024;
@@ -33,11 +39,12 @@ class ParticipantTracksStore {
 	// Gemini Transcribe accepts up to 15 minutes per request with word timestamps.
 	private const MAX_CHUNK_DURATION = 900;
 	/** Seconds a participant track may start before the mixed recording. */
-	private const MAX_EARLY_SPEECH = 600;
+	private const MAX_EARLY_SPEECH = 600.0;
 	private const CHUNK_FILE_PATTERN = '/^chunk-([0-9]{1,10}-[0-9]{1,6})\.ogg$/';
 
 	public function __construct(
 		private readonly IAppData $appData,
+		private readonly ITempManager $tempManager,
 	) {
 	}
 
@@ -45,22 +52,24 @@ class ParticipantTracksStore {
 	 * Validates and stores the uploaded archive for the given recording.
 	 *
 	 * @param array $file Uploaded file as returned by IRequest::getUploadedFile()
+	 * @return int the number of cut map pieces that were skipped as invalid
 	 * @throws InvalidArgumentException if the archive is not valid
 	 */
-	public function storeUploadedArchive(int $recordingFileId, array $file): void {
+	public function storeUploadedArchive(int $recordingFileId, array $file): int {
 		if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK
 			|| !isset($file['tmp_name'])
 			|| !is_uploaded_file($file['tmp_name'])) {
 			throw new InvalidArgumentException('participant_tracks_invalid_file');
 		}
 
-		$this->storeArchive($recordingFileId, $file['tmp_name']);
+		return $this->storeArchive($recordingFileId, $file['tmp_name']);
 	}
 
 	/**
+	 * @return int the number of cut map pieces that were skipped as invalid
 	 * @throws InvalidArgumentException if the archive is not valid
 	 */
-	public function storeArchive(int $recordingFileId, string $archivePath): void {
+	public function storeArchive(int $recordingFileId, string $archivePath): int {
 		if (!is_file($archivePath) || filesize($archivePath) > self::MAX_ARCHIVE_SIZE) {
 			throw new InvalidArgumentException('participant_tracks_invalid_file');
 		}
@@ -77,6 +86,8 @@ class ParticipantTracksStore {
 				throw new InvalidArgumentException('participant_tracks_invalid_manifest');
 			}
 			$manifest = $this->validateManifest($manifestContent, $chunkFiles);
+			$skippedPieces = $manifest['skippedPieces'];
+			unset($manifest['skippedPieces']);
 
 			$this->delete($recordingFileId);
 			$folder = $this->getRootFolder()->newFolder((string)$recordingFileId);
@@ -98,6 +109,7 @@ class ParticipantTracksStore {
 		} finally {
 			$zip->close();
 		}
+		return $skippedPieces;
 	}
 
 	public function has(int $recordingFileId): bool {
@@ -154,31 +166,123 @@ class ParticipantTracksStore {
 	}
 
 	/**
-	 * Deletes the tracks stored before the given time.
+	 * Lists the recordings with stored tracks.
 	 *
-	 * The tracks are deleted once processed, so only tracks of recordings that
-	 * were never processed (or whose processing got stuck) are left.
-	 *
-	 * @return int the number of recordings whose tracks were deleted
+	 * @return array<int, int> time when the tracks were stored by recording
+	 *                         file id (0 for an interrupted upload)
 	 */
-	public function deleteStoredBefore(int $timestamp): int {
-		$deleted = 0;
+	public function getStoredTracks(): array {
+		$stored = [];
 		foreach ($this->getRootFolder()->getDirectoryListing() as $folder) {
-			if (!$folder instanceof ISimpleFolder) {
+			if (!$folder instanceof ISimpleFolder || preg_match('/^[0-9]{1,20}$/', $folder->getName()) !== 1) {
 				continue;
 			}
 			try {
-				$storedAt = $folder->getFile(self::MANIFEST)->getMTime();
+				$stored[(int)$folder->getName()] = $folder->getFile(self::MANIFEST)->getMTime();
 			} catch (NotFoundException) {
-				// An interrupted upload.
-				$storedAt = 0;
-			}
-			if ($storedAt < $timestamp) {
-				$folder->delete();
-				$deleted++;
+				$stored[(int)$folder->getName()] = 0;
 			}
 		}
-		return $deleted;
+		return $stored;
+	}
+
+	/**
+	 * Keeps an uploaded archive that could not be stored, so it can be
+	 * imported again later.
+	 *
+	 * @throws InvalidArgumentException if the archive is too large
+	 */
+	public function keepRejectedUpload(int $recordingFileId, string $archivePath, string $reason): void {
+		if (!is_file($archivePath) || filesize($archivePath) > self::MAX_ARCHIVE_SIZE) {
+			throw new InvalidArgumentException('participant_tracks_invalid_file');
+		}
+		$stream = fopen($archivePath, 'rb');
+		if ($stream === false) {
+			throw new InvalidArgumentException('participant_tracks_invalid_file');
+		}
+		$folder = $this->getRootFolder(self::REJECTED_FOLDER);
+		$this->deleteRejectedUpload($recordingFileId);
+		try {
+			$folder->newFile($recordingFileId . '.zip', $stream);
+		} finally {
+			fclose($stream);
+		}
+		$folder->newFile($recordingFileId . '.txt', $reason);
+	}
+
+	public function hasRejectedUpload(int $recordingFileId): bool {
+		return $this->getRootFolder(self::REJECTED_FOLDER)->fileExists($recordingFileId . '.zip');
+	}
+
+	/**
+	 * @throws NotFoundException
+	 */
+	public function getRejectedReason(int $recordingFileId): string {
+		return $this->getRootFolder(self::REJECTED_FOLDER)->getFile($recordingFileId . '.txt')->getContent();
+	}
+
+	/**
+	 * Stores the tracks of a kept rejected upload, and deletes the upload once
+	 * all of it is stored.
+	 *
+	 * @return int the number of cut map pieces that were skipped as invalid
+	 * @throws NotFoundException if there is no rejected upload
+	 * @throws InvalidArgumentException if the archive is still not valid
+	 */
+	public function importRejectedUpload(int $recordingFileId): int {
+		$source = $this->getRootFolder(self::REJECTED_FOLDER)->getFile($recordingFileId . '.zip')->read();
+		if ($source === false) {
+			throw new NotFoundException('Rejected upload can not be read');
+		}
+		$archivePath = $this->tempManager->getTemporaryFile('.zip');
+		if ($archivePath === false) {
+			fclose($source);
+			throw new \RuntimeException('Temporary file can not be created');
+		}
+		try {
+			$target = fopen($archivePath, 'wb');
+			if ($target === false) {
+				throw new \RuntimeException('Temporary file can not be written');
+			}
+			stream_copy_to_stream($source, $target);
+			fclose($target);
+			$skippedPieces = $this->storeArchive($recordingFileId, $archivePath);
+		} finally {
+			fclose($source);
+			@unlink($archivePath);
+		}
+		// Until all of it could be imported, the upload is the only complete
+		// copy of the tracks.
+		if ($skippedPieces === 0) {
+			$this->deleteRejectedUpload($recordingFileId);
+		}
+		return $skippedPieces;
+	}
+
+	public function deleteRejectedUpload(int $recordingFileId): void {
+		$folder = $this->getRootFolder(self::REJECTED_FOLDER);
+		foreach (['.zip', '.txt'] as $extension) {
+			try {
+				$folder->getFile($recordingFileId . $extension)->delete();
+			} catch (NotFoundException) {
+				// Nothing stored
+			}
+		}
+	}
+
+	/**
+	 * Lists the recordings with a kept rejected upload.
+	 *
+	 * @return array<int, int> time when the upload was kept by recording file id
+	 */
+	public function getRejectedUploads(): array {
+		$rejected = [];
+		foreach ($this->getRootFolder(self::REJECTED_FOLDER)->getDirectoryListing() as $file) {
+			if (preg_match('/^([0-9]{1,20})\.zip$/', $file->getName(), $matches) === 1) {
+				$rejected[(int)$matches[1]] = $file->getMTime();
+			}
+		}
+		return $rejected;
 	}
 
 	/**
@@ -284,7 +388,8 @@ class ParticipantTracksStore {
 	 * Validates the manifest and keeps only the known fields.
 	 *
 	 * @param array<string, true> $chunkFiles
-	 * @return array{version: int, segments: list<array<string, mixed>>, chunks: list<array<string, mixed>>}
+	 * @return array{version: int, segments: list<array<string, mixed>>, chunks: list<array<string, mixed>>, skippedPieces: int}
+	 * @throws InvalidArgumentException if the tracks can not be used
 	 */
 	public function validateManifest(string $content, array $chunkFiles): array {
 		try {
@@ -324,6 +429,7 @@ class ParticipantTracksStore {
 		}
 
 		$chunks = [];
+		$skippedPieces = 0;
 		foreach ($manifest['chunks'] as $chunk) {
 			if (!is_array($chunk)
 				|| !is_string($chunk['id'] ?? null)
@@ -340,25 +446,17 @@ class ParticipantTracksStore {
 				throw new InvalidArgumentException('participant_tracks_invalid_manifest');
 			}
 
+			// An invalid piece only affects the times of its words, so it is
+			// skipped (the merger moves its words to the nearest valid piece)
+			// instead of rejecting the tracks of all the participants.
 			$cutMap = [];
 			$previousChunkStart = -1.0;
 			foreach ($chunk['cutMap'] as $piece) {
-				if (!is_array($piece)) {
-					throw new InvalidArgumentException('participant_tracks_invalid_manifest');
+				if (!$this->isValidPiece($piece) || (float)$piece['chunkStart'] <= $previousChunkStart) {
+					$skippedPieces++;
+					continue;
 				}
-				foreach (['chunkStart', 'trackStart', 'duration'] as $field) {
-					if (!$this->isTime($piece[$field] ?? null)) {
-						throw new InvalidArgumentException('participant_tracks_invalid_manifest');
-					}
-				}
-				$recordingStart = $piece['recordingStart'] ?? null;
-				if (!(is_int($recordingStart) || is_float($recordingStart))
-					|| !$this->isTime((float)$recordingStart + self::MAX_EARLY_SPEECH)) {
-					throw new InvalidArgumentException('participant_tracks_invalid_manifest');
-				}
-				if ((float)$piece['chunkStart'] <= $previousChunkStart) {
-					throw new InvalidArgumentException('participant_tracks_invalid_manifest');
-				}
+				$recordingStart = $piece['recordingStart'];
 				$previousChunkStart = (float)$piece['chunkStart'];
 				$cutMap[] = $this->trimBeforeRecording([
 					'chunkStart' => (float)$piece['chunkStart'],
@@ -366,6 +464,9 @@ class ParticipantTracksStore {
 					'recordingStart' => (float)$recordingStart,
 					'duration' => (float)$piece['duration'],
 				]);
+			}
+			if ($cutMap === []) {
+				throw new InvalidArgumentException('participant_tracks_invalid_manifest');
 			}
 
 			$chunks[$chunk['id']] = [
@@ -382,7 +483,22 @@ class ParticipantTracksStore {
 			'version' => 1,
 			'segments' => array_values($segments),
 			'chunks' => array_values($chunks),
+			'skippedPieces' => $skippedPieces,
 		];
+	}
+
+	private function isValidPiece(mixed $piece): bool {
+		if (!is_array($piece)) {
+			return false;
+		}
+		foreach (['chunkStart', 'trackStart', 'duration'] as $field) {
+			if (!$this->isTime($piece[$field] ?? null)) {
+				return false;
+			}
+		}
+		$recordingStart = $piece['recordingStart'] ?? null;
+		return (is_int($recordingStart) || is_float($recordingStart))
+			&& $this->isTime((float)$recordingStart + self::MAX_EARLY_SPEECH);
 	}
 
 	/**

@@ -248,6 +248,23 @@ List all matching consent that were given to be audio and video recorded during 
 | `--actor-type` | Limit to the given actor (only valid when --actor-id is also provided) | yes | yes | no | *Required* |
 | `--actor-id` | Limit to the given actor (only valid when --actor-type is also provided) | yes | yes | no | *Required* |
 
+## talk:recording:retranscribe
+
+Transcribe (and summarize) a call recording again, from the kept audio of the participants if available
+
+### Usage
+
+* `talk:recording:retranscribe [--output [OUTPUT]] [--mixed] [--] <recording-file-id>`
+
+| Arguments | Description | Is required | Is array | Default |
+|---|---|---|---|---|
+| `recording-file-id` | File id of the recording, as shown in the "Failed to transcript call recording" notification or the files app | yes | no | *Required* |
+
+| Options | Description | Accept value | Is value required | Is multiple | Default |
+|---|---|---|---|---|---|
+| `--output` | Output format (plain, json or json_pretty, default is plain) | yes | no | no | `'plain'` |
+| `--mixed` | Transcribe the mixed recording even if the audio of the participants is kept | no | no | no | `false` |
+
 ## talk:room:add
 
 Adds users to a room

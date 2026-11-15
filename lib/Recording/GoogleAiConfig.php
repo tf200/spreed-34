@@ -19,6 +19,11 @@ class GoogleAiConfig {
 	// gemini-2.5-flash-lite wrote some summaries in another language than
 	// the meeting, and the 2.5 models are deprecated.
 	public const DEFAULT_SUMMARY_MODEL = 'gemini-3.5-flash-lite';
+	/** Days the participant tracks are kept after the transcription succeeded. */
+	public const DEFAULT_TRACKS_RETENTION_COMPLETED_DAYS = 7;
+	/** Days the participant tracks are kept after the transcription failed. */
+	public const DEFAULT_TRACKS_RETENTION_FAILED_DAYS = 30;
+	public const MAX_TRACKS_RETENTION_DAYS = 365;
 
 	public function __construct(
 		private readonly IAppConfig $appConfig,
@@ -34,6 +39,18 @@ class GoogleAiConfig {
 	 */
 	public function isMultitrackEnabled(): bool {
 		return $this->isEnabled() && $this->appConfig->getAppValueBool('recording_google_multitrack_enabled');
+	}
+
+	public function getTracksRetentionCompletedDays(): int {
+		return $this->getRetentionDays('recording_tracks_retention_completed_days', self::DEFAULT_TRACKS_RETENTION_COMPLETED_DAYS);
+	}
+
+	public function getTracksRetentionFailedDays(): int {
+		return $this->getRetentionDays('recording_tracks_retention_failed_days', self::DEFAULT_TRACKS_RETENTION_FAILED_DAYS);
+	}
+
+	private function getRetentionDays(string $key, int $default): int {
+		return max(0, min(self::MAX_TRACKS_RETENTION_DAYS, $this->appConfig->getAppValueInt($key, $default)));
 	}
 
 	/**

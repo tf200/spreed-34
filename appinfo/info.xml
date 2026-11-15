@@ -18,7 +18,7 @@
 * 🌉 **Sync with other chat solutions** With [Matterbridge](https://github.com/42wim/matterbridge/) being integrated in Talk, you can easily sync a lot of other chat solutions to Nextcloud Talk and vice-versa.
 ]]></description>
 
-	<version>24.0.8</version>
+	<version>24.0.9</version>
 	<licence>agpl</licence>
 
 	<author>Anna Larch</author>
@@ -118,6 +118,7 @@
 		<command>OCA\Talk\Command\PhoneNumber\RemovePhoneNumber</command>
 
 		<command>OCA\Talk\Command\Recording\Consent</command>
+		<command>OCA\Talk\Command\Recording\Retranscribe</command>
 
 		<command>OCA\Talk\Command\Room\Add</command>
 		<command>OCA\Talk\Command\Room\Create</command>

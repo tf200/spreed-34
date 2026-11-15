@@ -465,6 +465,8 @@ class AdminSettings implements ISettings {
 			'multitrackEnabled' => $this->appConfig->getAppValueBool('recording_google_multitrack_enabled'),
 			'transcriptionModel' => $this->appConfig->getAppValueString('recording_google_transcription_model', GoogleAiConfig::DEFAULT_TRANSCRIPTION_MODEL),
 			'summaryModel' => $this->appConfig->getAppValueString('recording_google_summary_model', GoogleAiConfig::DEFAULT_SUMMARY_MODEL),
+			'tracksRetentionCompletedDays' => $this->appConfig->getAppValueInt('recording_tracks_retention_completed_days', GoogleAiConfig::DEFAULT_TRACKS_RETENTION_COMPLETED_DAYS),
+			'tracksRetentionFailedDays' => $this->appConfig->getAppValueInt('recording_tracks_retention_failed_days', GoogleAiConfig::DEFAULT_TRACKS_RETENTION_FAILED_DAYS),
 		]);
 	}
 

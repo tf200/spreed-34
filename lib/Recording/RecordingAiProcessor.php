@@ -145,12 +145,14 @@ class RecordingAiProcessor {
 			$this->multitrack->prepare($operation);
 			return true;
 		} catch (\Throwable $e) {
+			// The tracks are kept, so the recording can be transcribed from
+			// them again once the problem is solved.
 			$this->logger->warning('Participant tracks can not be transcribed, using the mixed recording', ['exception' => $e]);
+			$operation->setSkipTracks(true);
 			try {
-				$this->multitrack->cleanup($operation);
+				$this->multitrack->releaseChunks($operation);
 			} catch (\Throwable $e) {
-				// The cleanup job deletes the tracks later.
-				$this->logger->warning('Participant tracks could not be deleted', ['exception' => $e]);
+				$this->logger->warning('Chunk results could not be deleted', ['exception' => $e]);
 			}
 			return false;
 		}
@@ -167,8 +169,11 @@ class RecordingAiProcessor {
 		if ($result['failed'] > 0) {
 			// A transcript with the words of a participant missing would be
 			// misleading, so the mixed recording is transcribed instead.
+			// The tracks are kept, so the recording can be transcribed from them
+			// again once the problem is solved.
 			$this->logger->warning('Transcription of participant tracks failed, using the mixed recording', ['operationId' => $operation->getId()]);
-			$this->multitrack->cleanup($operation);
+			$this->multitrack->releaseChunks($operation);
+			$operation->setSkipTracks(true);
 			$operation->setState(RecordingAiOperation::STATE_QUEUED);
 			$this->resetErrors($operation);
 			$this->schedule($operation, 0);
@@ -208,7 +213,7 @@ class RecordingAiProcessor {
 		$this->schedule($operation, 0);
 		$persisted = $this->persist($operation, $claimToken);
 		if ($persisted) {
-			$this->multitrack->cleanup($operation);
+			$this->multitrack->releaseChunks($operation);
 		}
 		return $persisted;
 	}
@@ -389,9 +394,10 @@ class RecordingAiProcessor {
 		}
 		$this->cleanup($operation);
 		try {
-			$this->multitrack->cleanup($operation);
+			// The tracks are kept for a retry, see CleanupParticipantTracks.
+			$this->multitrack->releaseChunks($operation);
 		} catch (\Throwable) {
-			// The audio is removed with the recording at the latest.
+			// Removed with a retry at the latest.
 		}
 		try {
 			$this->recordingService->notifyAboutFailedTranscript(

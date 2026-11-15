@@ -73,6 +73,7 @@ class RecordingAiOperationMapper extends QBMapper {
 			->set('speech_response', $query->createNamedParameter($operation->getSpeechResponse(), $operation->getSpeechResponse() === null ? IQueryBuilder::PARAM_NULL : IQueryBuilder::PARAM_STR))
 			->set('transcript', $query->createNamedParameter($operation->getTranscript(), $operation->getTranscript() === null ? IQueryBuilder::PARAM_NULL : IQueryBuilder::PARAM_STR))
 			->set('attempts', $query->createNamedParameter($operation->getAttempts(), IQueryBuilder::PARAM_INT))
+			->set('skip_tracks', $query->createNamedParameter((bool)$operation->getSkipTracks(), IQueryBuilder::PARAM_BOOL))
 			->set('next_attempt_at', $query->createNamedParameter($operation->getNextAttemptAt(), IQueryBuilder::PARAM_DATETIME_MUTABLE))
 			->set('last_error_code', $query->createNamedParameter($operation->getLastErrorCode(), $operation->getLastErrorCode() === null ? IQueryBuilder::PARAM_NULL : IQueryBuilder::PARAM_STR))
 			->set('last_error_message', $query->createNamedParameter($operation->getLastErrorMessage(), $operation->getLastErrorMessage() === null ? IQueryBuilder::PARAM_NULL : IQueryBuilder::PARAM_STR))

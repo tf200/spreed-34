@@ -306,4 +306,7 @@ Sources:
 - Guest display names do not reach the recording browser when set after joining (test harness);
   Talk resolves the names of the tracks from the participant list at upload. Guests that left
   before the upload are shown as "Guest N".
-- Retention period for per-participant audio if processing fails.
+- ~~Retention period for per-participant audio if processing fails.~~ Done (2026-11-15): the
+  tracks are kept after the transcription (admin settings, default 7 days after success, 30 days
+  after failure, deleted with the recording), an upload Talk can not read is kept as uploaded, and
+  `occ talk:recording:retranscribe <file id>` transcribes a recording again from them.

@@ -434,7 +434,7 @@ class RecordingAiProcessorTest extends TestCase {
 		$this->assertSame(strtotime(self::NOW), $operation->getNextAttemptAt()->getTimestamp());
 	}
 
-	public function testTracksThatCanNotBePreparedAreDeleted(): void {
+	public function testTracksThatCanNotBePreparedAreKeptAndSkipped(): void {
 		$operation = $this->createOperation(RecordingAiOperation::STATE_QUEUED);
 		$this->mapper->method('findById')->with(42)->willReturn($operation);
 		$this->mapper->method('claimForUpload')->willReturnCallback(function () use ($operation): bool {
@@ -445,7 +445,7 @@ class RecordingAiProcessorTest extends TestCase {
 		$this->mapper->method('updateClaimed')->willReturn(true);
 		$this->multitrack->method('isAvailable')->willReturn(true);
 		$this->multitrack->method('prepare')->willThrowException(new \RuntimeException('Database error'));
-		$this->multitrack->expects($this->once())->method('cleanup')->with($operation);
+		$this->multitrack->expects($this->once())->method('releaseChunks')->with($operation);
 		// The mixed recording is transcribed instead.
 		$file = $this->createConfiguredMock(File::class, ['getMimeType' => 'audio/webm']);
 		$folder = $this->createMock(Folder::class);
@@ -457,6 +457,7 @@ class RecordingAiProcessorTest extends TestCase {
 		$this->processor->process(42);
 
 		$this->assertSame(RecordingAiOperation::STATE_TRANSCRIBING, $operation->getState());
+		$this->assertTrue($operation->getSkipTracks());
 	}
 
 	public function testTrackTranscriptionRetriesLater(): void {
@@ -476,13 +477,15 @@ class RecordingAiProcessorTest extends TestCase {
 		$operation = $this->createOperation(RecordingAiOperation::STATE_TRANSCRIBING_TRACKS);
 		$this->expectStageClaims($operation);
 		$this->multitrack->method('transcribePending')->willReturn(['pending' => 0, 'failed' => 1, 'retrying' => 0]);
-		$this->multitrack->expects($this->once())->method('cleanup')->with($operation);
+		$this->multitrack->expects($this->once())->method('releaseChunks')->with($operation);
 		$this->mapper->expects($this->once())->method('updateClaimed')->willReturn(true);
 		$this->recordingService->expects($this->never())->method('notifyAboutFailedTranscript');
 
 		$this->processor->process(42);
 
 		$this->assertSame(RecordingAiOperation::STATE_QUEUED, $operation->getState());
+		// The tracks are kept, but not transcribed again.
+		$this->assertTrue($operation->getSkipTracks());
 	}
 
 	public function testMergingStoresDocumentAndCleansWithExactSpeakers(): void {
@@ -490,7 +493,7 @@ class RecordingAiProcessorTest extends TestCase {
 		$this->expectStageClaims($operation, 3);
 		$this->multitrack->method('merge')->willReturn(['markdown' => "**Alice** · 00:01\nHello", 'document' => ['version' => 2]]);
 		$this->multitrack->expects($this->once())->method('storeDocument')->with($operation, ['version' => 2]);
-		$this->multitrack->expects($this->once())->method('cleanup')->with($operation);
+		$this->multitrack->expects($this->once())->method('releaseChunks')->with($operation);
 		$this->multitrack->method('hasDocument')->willReturn(true);
 		$this->gemini->expects($this->once())->method('standardizeTranscript')
 			->with("**Alice** · 00:01\nHello", true)

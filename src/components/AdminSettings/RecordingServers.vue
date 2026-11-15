@@ -177,6 +177,25 @@
 					class="form__textfield"
 					:label="t('spreed', 'Transcription model')"
 					labelVisible />
+				<p class="settings-hint">
+					{{ t('spreed', 'The audio of every participant is kept after the transcription, so a recording can be transcribed again (occ talk:recording:retranscribe). It is deleted after the days below, or with the recording.') }}
+				</p>
+				<NcTextField
+					v-model.number="google.tracksRetentionCompletedDays"
+					class="form__textfield"
+					type="number"
+					min="0"
+					max="365"
+					:label="t('spreed', 'Days to keep participant audio after a successful transcription')"
+					labelVisible />
+				<NcTextField
+					v-model.number="google.tracksRetentionFailedDays"
+					class="form__textfield"
+					type="number"
+					min="0"
+					max="365"
+					:label="t('spreed', 'Days to keep participant audio after a failed transcription')"
+					labelVisible />
 				<NcButton variant="primary" :disabled="loading" @click="saveGoogleSettings">
 					{{ t('spreed', 'Save Google Cloud settings') }}
 				</NcButton>

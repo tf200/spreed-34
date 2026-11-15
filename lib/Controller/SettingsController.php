@@ -108,6 +108,8 @@ class SettingsController extends OCSController {
 	 * @param bool $multitrackEnabled Whether to transcribe recordings per participant track
 	 * @param string $transcriptionModel Gemini Transcribe model to transcribe participant tracks
 	 * @param string $summaryModel Gemini model to summarize recordings
+	 * @param int $tracksRetentionCompletedDays Days the participant tracks are kept after the transcription succeeded
+	 * @param int $tracksRetentionFailedDays Days the participant tracks are kept after the transcription failed
 	 * @return DataResponse<Http::STATUS_OK, null, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, null, array{}>
 	 *
 	 * 200: Settings updated
@@ -129,6 +131,8 @@ class SettingsController extends OCSController {
 		bool $multitrackEnabled = false,
 		string $transcriptionModel = GoogleAiConfig::DEFAULT_TRANSCRIPTION_MODEL,
 		string $summaryModel = GoogleAiConfig::DEFAULT_SUMMARY_MODEL,
+		int $tracksRetentionCompletedDays = GoogleAiConfig::DEFAULT_TRACKS_RETENTION_COMPLETED_DAYS,
+		int $tracksRetentionFailedDays = GoogleAiConfig::DEFAULT_TRACKS_RETENTION_FAILED_DAYS,
 	): DataResponse {
 		if (!preg_match('/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/', $project)
 			|| !preg_match('/^[a-z][a-z0-9-]{1,31}$/', $location)
@@ -138,7 +142,9 @@ class SettingsController extends OCSController {
 			|| !preg_match('/^(?:global|[a-z]+-[a-z]+[0-9])$/', $geminiLocation)
 			|| !preg_match('/^[a-zA-Z0-9._-]{1,64}$/', $geminiModel)
 			|| !preg_match('/^[a-zA-Z0-9._-]{1,64}$/', $transcriptionModel)
-			|| !preg_match('/^[a-zA-Z0-9._-]{1,64}$/', $summaryModel)) {
+			|| !preg_match('/^[a-zA-Z0-9._-]{1,64}$/', $summaryModel)
+			|| $tracksRetentionCompletedDays < 0 || $tracksRetentionCompletedDays > GoogleAiConfig::MAX_TRACKS_RETENTION_DAYS
+			|| $tracksRetentionFailedDays < 0 || $tracksRetentionFailedDays > GoogleAiConfig::MAX_TRACKS_RETENTION_DAYS) {
 			return new DataResponse(null, Http::STATUS_BAD_REQUEST);
 		}
 
@@ -163,6 +169,8 @@ class SettingsController extends OCSController {
 		}
 		$this->config->setAppValue('spreed', 'recording_google_ai_enabled', $enabled ? 'yes' : 'no');
 		$this->config->setAppValue('spreed', 'recording_google_multitrack_enabled', $multitrackEnabled ? 'yes' : 'no');
+		$this->config->setAppValue('spreed', 'recording_tracks_retention_completed_days', (string)$tracksRetentionCompletedDays);
+		$this->config->setAppValue('spreed', 'recording_tracks_retention_failed_days', (string)$tracksRetentionFailedDays);
 		if ($removeServiceAccount) {
 			$this->config->deleteAppValue('spreed', 'recording_google_service_account');
 		} elseif ($serviceAccountJson !== '') {

@@ -49,7 +49,9 @@ class MultitrackTranscriptService {
 	 * Whether the recording can be transcribed from its participant tracks.
 	 */
 	public function isAvailable(RecordingAiOperation $operation): bool {
-		return $this->config->isMultitrackEnabled() && $this->tracksStore->has($operation->getRecordingFileId());
+		return !$operation->getSkipTracks()
+			&& $this->config->isMultitrackEnabled()
+			&& $this->tracksStore->has($operation->getRecordingFileId());
 	}
 
 	/**
@@ -204,11 +206,22 @@ class MultitrackTranscriptService {
 	}
 
 	/**
-	 * Deletes the audio and the chunk results once they are no longer needed.
+	 * Deletes the chunk results once they are no longer needed.
+	 *
+	 * The audio is kept, so the recording can be transcribed again, until the
+	 * CleanupParticipantTracks job deletes it.
 	 */
-	public function cleanup(RecordingAiOperation $operation): void {
-		$this->tracksStore->delete($operation->getRecordingFileId());
+	public function releaseChunks(RecordingAiOperation $operation): void {
 		$this->chunkMapper->deleteByOperation((int)$operation->getId());
+	}
+
+	/**
+	 * Forgets the results of a previous transcription, before transcribing the
+	 * recording again.
+	 */
+	public function reset(RecordingAiOperation $operation): void {
+		$this->chunkMapper->deleteByOperation((int)$operation->getId());
+		$this->tracksStore->deleteTranscriptDocument($operation->getRecordingFileId());
 	}
 
 	/**

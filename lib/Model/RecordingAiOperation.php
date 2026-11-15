@@ -45,6 +45,8 @@ use OCP\DB\Types;
  * @method void setClaimUntil(?\DateTime $value)
  * @method \DateTime getUpdatedAt()
  * @method void setUpdatedAt(\DateTime $value)
+ * @method bool|null getSkipTracks()
+ * @method void setSkipTracks(bool $value)
  */
 class RecordingAiOperation extends SnowflakeAwareEntity {
 	public const STATE_QUEUED = 'queued';
@@ -76,12 +78,15 @@ class RecordingAiOperation extends SnowflakeAwareEntity {
 	protected ?string $claimToken = null;
 	protected ?\DateTime $claimUntil = null;
 	protected ?\DateTime $updatedAt = null;
+	/** Transcribe the mixed recording although participant tracks are kept. */
+	protected ?bool $skipTracks = false;
 
 	public function __construct() {
 		$this->addType('recordingFileId', Types::BIGINT);
 		$this->addType('attempts', Types::INTEGER);
 		$this->addType('speechResponse', Types::TEXT);
 		$this->addType('transcript', Types::TEXT);
+		$this->addType('skipTracks', Types::BOOLEAN);
 		foreach (['nextAttemptAt', 'deadlineAt', 'claimUntil', 'updatedAt'] as $field) {
 			$this->addType($field, Types::DATETIME);
 		}
