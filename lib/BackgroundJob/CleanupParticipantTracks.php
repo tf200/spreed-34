@@ -49,13 +49,23 @@ class CleanupParticipantTracks extends TimedJob {
 
 	#[Override]
 	protected function run($argument): void {
-		$tracks = $this->tracksStore->getStoredTracks();
 		$rejected = $this->tracksStore->getRejectedUploads();
+		// The folders of the tracks can not be listed, so the candidates are
+		// the marked tracks and the recordings that were (or are) transcribed.
+		$candidates = array_unique(array_merge(
+			$this->tracksStore->getMarkedTracks(),
+			array_keys($rejected),
+			$this->operationMapper->findAllRecordingFileIds(),
+		));
 
 		$deleted = 0;
-		foreach (array_keys($tracks + $rejected) as $recordingFileId) {
-			$storedAt = max($tracks[$recordingFileId] ?? 0, $rejected[$recordingFileId] ?? 0);
+		foreach ($candidates as $recordingFileId) {
 			try {
+				$tracksStoredAt = $this->tracksStore->getStoredAt($recordingFileId);
+				if ($tracksStoredAt === null && !isset($rejected[$recordingFileId])) {
+					continue;
+				}
+				$storedAt = max($tracksStoredAt ?? 0, $rejected[$recordingFileId] ?? 0);
 				if (!$this->isExpired($recordingFileId, $storedAt)) {
 					continue;
 				}

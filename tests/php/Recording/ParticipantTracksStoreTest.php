@@ -92,6 +92,11 @@ class ParticipantTracksStoreTest extends TestCase {
 		$this->appData->method('getFolder')->with('recording-tracks')->willReturn($root);
 		$root->method('getFolder')->willThrowException(new NotFoundException());
 		$root->expects($this->once())->method('newFolder')->with('42')->willReturn($recording);
+		$markers = [];
+		$root->method('newFile')->willReturnCallback(function (string $name) use (&$markers) {
+			$markers[] = $name;
+			return $this->createMock(\OCP\Files\SimpleFS\ISimpleFile::class);
+		});
 
 		$written = [];
 		$recording->method('newFile')->willReturnCallback(function (string $name, $content) use (&$written) {
@@ -105,6 +110,7 @@ class ParticipantTracksStoreTest extends TestCase {
 		]));
 
 		$this->assertSame(['chunk-1-0.ogg', 'manifest.json'], array_keys($written));
+		$this->assertSame(['42.stored'], $markers);
 		$this->assertSame('OggS-audio', $written['chunk-1-0.ogg']);
 		$manifest = json_decode($written['manifest.json'], true);
 		$this->assertSame('1', $manifest['segments'][0]['id']);
@@ -256,6 +262,31 @@ class ParticipantTracksStoreTest extends TestCase {
 		]);
 
 		$this->assertSame(1, $this->store->importRejectedUpload(42));
+	}
+
+	public function testGetMarkedTracksListsMarkers(): void {
+		$root = $this->createMock(ISimpleFolder::class);
+		$this->appData->method('getFolder')->with('recording-tracks')->willReturn($root);
+		$files = [];
+		foreach (['42.stored', '43.stored', 'other.txt'] as $name) {
+			$files[] = $this->createConfiguredMock(ISimpleFile::class, ['getName' => $name]);
+		}
+		$root->method('getDirectoryListing')->willReturn($files);
+
+		$this->assertSame([42, 43], $this->store->getMarkedTracks());
+	}
+
+	public function testDeleteRemovesFolderAndMarker(): void {
+		$root = $this->createMock(ISimpleFolder::class);
+		$this->appData->method('getFolder')->with('recording-tracks')->willReturn($root);
+		$folder = $this->createMock(ISimpleFolder::class);
+		$folder->expects($this->once())->method('delete');
+		$root->method('getFolder')->with('42')->willReturn($folder);
+		$marker = $this->createMock(ISimpleFile::class);
+		$marker->expects($this->once())->method('delete');
+		$root->method('getFile')->with('42.stored')->willReturn($marker);
+
+		$this->store->delete(42);
 	}
 
 	public function testValidateManifestTrimsSpeechBeforeTheRecording(): void {

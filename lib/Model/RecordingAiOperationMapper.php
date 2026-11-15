@@ -94,6 +94,21 @@ class RecordingAiOperationMapper extends QBMapper {
 		return $query->executeStatement() === 1;
 	}
 
+	/**
+	 * @return list<int> the recording file ids of all the operations
+	 */
+	public function findAllRecordingFileIds(): array {
+		$query = $this->db->getQueryBuilder();
+		$query->select('recording_file_id')->from($this->getTableName());
+		$result = $query->executeQuery();
+		$recordingFileIds = [];
+		while (($row = $result->fetch()) !== false) {
+			$recordingFileIds[] = (int)$row['recording_file_id'];
+		}
+		$result->closeCursor();
+		return $recordingFileIds;
+	}
+
 	/** @return list<int> */
 	public function findDueIds(\DateTimeInterface $now, int $limit = 20): array {
 		$query = $this->db->getQueryBuilder();

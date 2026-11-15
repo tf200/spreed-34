@@ -32,6 +32,9 @@ class ParticipantTracksStore {
 	private const REJECTED_FOLDER = 'recording-tracks-rejected';
 	private const TRANSCRIPTS_FOLDER = 'recording-transcripts';
 	private const MANIFEST = 'manifest.json';
+	// The files of the root folder can be listed, but not its folders, so a
+	// marker file next to the folder of each recording lists the stored tracks.
+	private const MARKER_SUFFIX = '.stored';
 	private const MAX_ARCHIVE_SIZE = 512 * 1024 * 1024;
 	private const MAX_MANIFEST_SIZE = 4 * 1024 * 1024;
 	private const MAX_CHUNK_SIZE = 64 * 1024 * 1024;
@@ -102,6 +105,10 @@ class ParticipantTracksStore {
 				// The manifest is written last, so its presence means that all
 				// the chunks were stored.
 				$folder->newFile(self::MANIFEST, json_encode($manifest, JSON_THROW_ON_ERROR));
+				$root = $this->getRootFolder();
+				if (!$root->fileExists($recordingFileId . self::MARKER_SUFFIX)) {
+					$root->newFile($recordingFileId . self::MARKER_SUFFIX, '');
+				}
 			} catch (\Throwable $e) {
 				$folder->delete();
 				throw $e;
@@ -158,32 +165,52 @@ class ParticipantTracksStore {
 	}
 
 	public function delete(int $recordingFileId): void {
+		$root = $this->getRootFolder();
 		try {
-			$this->getRootFolder()->getFolder((string)$recordingFileId)->delete();
+			$root->getFolder((string)$recordingFileId)->delete();
 		} catch (NotFoundException) {
 			// Nothing stored
+		}
+		try {
+			$root->getFile($recordingFileId . self::MARKER_SUFFIX)->delete();
+		} catch (NotFoundException) {
+			// Stored before the markers were added
 		}
 	}
 
 	/**
-	 * Lists the recordings with stored tracks.
+	 * Lists the recordings whose tracks were stored with a marker.
 	 *
-	 * @return array<int, int> time when the tracks were stored by recording
-	 *                         file id (0 for an interrupted upload)
+	 * Tracks stored before the markers were added are not listed, see
+	 * getStoredAt().
+	 *
+	 * @return list<int> recording file ids
 	 */
-	public function getStoredTracks(): array {
-		$stored = [];
-		foreach ($this->getRootFolder()->getDirectoryListing() as $folder) {
-			if (!$folder instanceof ISimpleFolder || preg_match('/^[0-9]{1,20}$/', $folder->getName()) !== 1) {
-				continue;
-			}
-			try {
-				$stored[(int)$folder->getName()] = $folder->getFile(self::MANIFEST)->getMTime();
-			} catch (NotFoundException) {
-				$stored[(int)$folder->getName()] = 0;
+	public function getMarkedTracks(): array {
+		$recordingFileIds = [];
+		foreach ($this->getRootFolder()->getDirectoryListing() as $file) {
+			if (preg_match('/^([0-9]{1,20})' . preg_quote(self::MARKER_SUFFIX, '/') . '$/', $file->getName(), $matches) === 1) {
+				$recordingFileIds[] = (int)$matches[1];
 			}
 		}
-		return $stored;
+		return $recordingFileIds;
+	}
+
+	/**
+	 * @return int|null time when the tracks of the recording were stored (0
+	 *                  for an interrupted upload), or null if none are stored
+	 */
+	public function getStoredAt(int $recordingFileId): ?int {
+		try {
+			$folder = $this->getRootFolder()->getFolder((string)$recordingFileId);
+		} catch (NotFoundException) {
+			return null;
+		}
+		try {
+			return $folder->getFile(self::MANIFEST)->getMTime();
+		} catch (NotFoundException) {
+			return 0;
+		}
 	}
 
 	/**

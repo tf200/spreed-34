@@ -48,6 +48,19 @@ class CleanupParticipantTracksTest extends TestCase {
 		$this->job = new CleanupParticipantTracks($time, $this->tracksStore, $this->mapper, $config, $rootFolder, $this->createMock(LoggerInterface::class));
 	}
 
+	/**
+	 * @param array<int, int> $tracks time when the tracks were stored by recording file id
+	 * @param array<int, int> $rejected time when the upload was kept by recording file id
+	 * @param list<int> $marked
+	 * @param list<int> $operations
+	 */
+	private function stored(array $tracks, array $rejected = [], array $marked = [], array $operations = [42]): void {
+		$this->tracksStore->method('getMarkedTracks')->willReturn($marked);
+		$this->tracksStore->method('getRejectedUploads')->willReturn($rejected);
+		$this->mapper->method('findAllRecordingFileIds')->willReturn($operations);
+		$this->tracksStore->method('getStoredAt')->willReturnCallback(static fn (int $id): ?int => $tracks[$id] ?? null);
+	}
+
 	private function operation(string $state, int $updatedAt): RecordingAiOperation {
 		$operation = new RecordingAiOperation();
 		$operation->setRecordingFileId(42);
@@ -70,8 +83,7 @@ class CleanupParticipantTracksTest extends TestCase {
 
 	#[DataProvider('dataRetention')]
 	public function testKeepsTracksDependingOnTheTranscription(string $state, int $daysAgo, bool $expectDeleted): void {
-		$this->tracksStore->method('getStoredTracks')->willReturn([42 => self::NOW - 90 * self::DAY]);
-		$this->tracksStore->method('getRejectedUploads')->willReturn([]);
+		$this->stored([42 => self::NOW - 90 * self::DAY]);
 		$this->mapper->method('findByRecordingFileId')->with(42)->willReturn($this->operation($state, self::NOW - $daysAgo * self::DAY));
 		$this->userFolder->method('getFirstNodeById')->with(42)->willReturn($this->createMock(File::class));
 
@@ -82,8 +94,7 @@ class CleanupParticipantTracksTest extends TestCase {
 	}
 
 	public function testDeletesTracksOfDeletedRecording(): void {
-		$this->tracksStore->method('getStoredTracks')->willReturn([]);
-		$this->tracksStore->method('getRejectedUploads')->willReturn([42 => self::NOW]);
+		$this->stored([], [42 => self::NOW], [], []);
 		$this->mapper->method('findByRecordingFileId')->willReturn($this->operation(RecordingAiOperation::STATE_COMPLETED, self::NOW));
 		$this->userFolder->method('getFirstNodeById')->with(42)->willReturn(null);
 
@@ -94,8 +105,7 @@ class CleanupParticipantTracksTest extends TestCase {
 	}
 
 	public function testTracksImportedAgainAreKeptFromThen(): void {
-		$this->tracksStore->method('getStoredTracks')->willReturn([42 => self::NOW - self::DAY]);
-		$this->tracksStore->method('getRejectedUploads')->willReturn([]);
+		$this->stored([42 => self::NOW - self::DAY]);
 		$this->mapper->method('findByRecordingFileId')->willReturn($this->operation(RecordingAiOperation::STATE_COMPLETED, self::NOW - 10 * self::DAY));
 		$this->userFolder->method('getFirstNodeById')->willReturn($this->createMock(File::class));
 
@@ -104,12 +114,19 @@ class CleanupParticipantTracksTest extends TestCase {
 		self::invokePrivate($this->job, 'run', [null]);
 	}
 
+	public function testSkipsRecordingsWithoutStoredTracks(): void {
+		$this->stored([], [], [], [42, 43]);
+		$this->mapper->expects($this->never())->method('findByRecordingFileId');
+		$this->tracksStore->expects($this->never())->method('delete');
+
+		self::invokePrivate($this->job, 'run', [null]);
+	}
+
 	public function testDeletesUnusedTracksAfterSomeDays(): void {
-		$this->tracksStore->method('getStoredTracks')->willReturn([
+		$this->stored([
 			42 => self::NOW - 3 * self::DAY,
 			43 => self::NOW - self::DAY,
-		]);
-		$this->tracksStore->method('getRejectedUploads')->willReturn([]);
+		], [], [42, 43], []);
 		$this->mapper->method('findByRecordingFileId')->willThrowException(new DoesNotExistException(''));
 
 		$this->tracksStore->expects($this->once())->method('delete')->with(42);
